@@ -108,6 +108,22 @@ export default function ControlPage() {
 
     setGuardando(true);
     try {
+      // Buscar datos del dorsal en usuarios_evento
+      const { data: usuarioData, error: usuarioError } = await supabaseClient
+        .from('usuarios_evento')
+        .select('*')
+        .eq('evento', eventoSeleccionado.id)
+        .eq('dorsal', dorsal.trim())
+        .single();
+
+      let nombre = 'Por definir';
+      let equipo = 'Por definir';
+
+      if (!usuarioError && usuarioData) {
+        nombre = usuarioData.nombre || 'Por definir';
+        equipo = usuarioData.equipo || 'Por definir';
+      }
+
       // Contar cuántos pasos tiene este dorsal (= número de vuelta)
       const vuelta = pasos.filter((p) => p.dorsal === dorsal.trim()).length + 1;
 
@@ -116,8 +132,8 @@ export default function ControlPage() {
         dorsal: dorsal.trim(),
         vuelta: vuelta,
         tiempo_ms: cronometroMs,
-        nombre: correorInput || 'Por definir',
-        equipo: 'Por definir',
+        nombre: nombre,
+        equipo: equipo,
         es_rezagado: false,
       };
 
@@ -134,7 +150,7 @@ export default function ControlPage() {
       setCorredorInput('');
     } catch (err) {
       console.error(err);
-      alert('Error al registrar paso');
+      alert('Error al registrar paso: ' + (err instanceof Error ? err.message : 'Desconocido'));
     } finally {
       setGuardando(false);
     }
