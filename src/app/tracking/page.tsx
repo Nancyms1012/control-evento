@@ -33,7 +33,7 @@ export default function TrackingPage() {
 
   useEffect(() => {
     cargarCarreras();
-    const subscription = supabaseClient
+    const channel = supabaseClient.channel('pasos_carrera_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pasos_carrera' }, () => {
         if (carrera) {
           cargarPasos(carrera.id);
@@ -42,7 +42,7 @@ export default function TrackingPage() {
       .subscribe();
 
     return () => {
-      subscription.unsubscribe();
+      supabaseClient.removeChannel(channel);
     };
   }, [carrera?.id]);
 

@@ -103,7 +103,7 @@ export default function ControlPage() {
       setCorredorInput('');
 
       // Auto-detección de cierre de vuelta (cuando repite dorsal)
-      const mismaVuelta = pasos.filter((p) => p.vuelta === vuelта);
+      const mismaVuelta = pasos.filter((p) => p.vuelta === vuelta);
       if (mismaVuelta.some((p) => p.dorsal === dorsal.trim())) {
         // Cerró la vuelta, es la siguiente
         console.log('Vuelta cerrada, siguiente comenzó');
