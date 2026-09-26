@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  output: "export",
+  // Cloudflare Pages doesn't support dynamic rendering
+  // All pages must be prerendered as static
 };
 
 export default nextConfig;

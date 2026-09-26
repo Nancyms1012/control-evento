@@ -1,0 +1,9 @@
+{
+  "name": "control-evento",
+  "type": "javascript",
+  "pages_build_caching": false,
+  "build": {
+    "command": "npm run build",
+    "cwd": "."
+  }
+}
