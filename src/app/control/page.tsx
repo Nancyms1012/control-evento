@@ -2,15 +2,16 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { supabaseClient } from '@/lib/supabase-client';
+import Link from 'next/link';
 
-interface Carrera {
+interface Evento {
   id: string;
   tipo: 'XCC' | 'XCO';
   categoria: string;
   duracion_minutos?: number;
   vueltas_totales?: number;
   hora_salida: string;
-  estado: 'pendiente' | 'en_curso' | 'finalizada';
+  fecha: string;
 }
 
 interface Paso {
@@ -19,13 +20,14 @@ interface Paso {
   dorsal: string;
   vuelta: number;
   tiempo_ms: number;
-  nombre: string;
-  equipo: string;
+  nombre?: string;
+  equipo?: string;
   es_rezagado: boolean;
 }
 
 export default function ControlPage() {
-  const [carrera, setCarrera] = useState<Carrera | null>(null);
+  const [eventos, setEventos] = useState<Evento[]>([]);
+  const [eventoSeleccionado, setEventoSeleccionado] = useState<Evento | null>(null);
   const [pasos, setPasos] = useState<Paso[]>([]);
   const [cronometroMs, setCronometroMs] = useState(0);
   const [corriendo, setCorriendo] = useState(false);
@@ -34,25 +36,54 @@ export default function ControlPage() {
   const [guardando, setGuardando] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Iniciar cronómetro
-  const iniciarCarrera = async () => {
-    if (!carrera) return;
+  // Cargar eventos del cronograma
+  useEffect(() => {
+    cargarEventos();
+  }, []);
 
+  const cargarEventos = async () => {
     try {
       const { data, error } = await supabaseClient
-        .from('carreras')
-        .update({ estado: 'en_curso' })
-        .eq('id', carrera.id)
-        .select()
-        .single();
+        .from('cronograma')
+        .select('*')
+        .order('fecha', { ascending: true })
+        .order('hora_salida', { ascending: true });
 
       if (error) throw error;
-      setCarrera(data);
-      setCorriendo(true);
-      setCronometroMs(0);
+      setEventos(data || []);
     } catch (err) {
-      alert('Error al iniciar carrera');
+      console.error('Error cargando eventos:', err);
     }
+  };
+
+  // Cargar pasos cuando se selecciona un evento
+  useEffect(() => {
+    if (!eventoSeleccionado) return;
+    cargarPasos();
+  }, [eventoSeleccionado]);
+
+  const cargarPasos = async () => {
+    if (!eventoSeleccionado) return;
+    try {
+      const { data, error } = await supabaseClient
+        .from('pasos_carrera')
+        .select('*')
+        .eq('carrera_id', eventoSeleccionado.id)
+        .order('vuelta', { ascending: false })
+        .order('tiempo_ms', { ascending: false });
+
+      if (error) throw error;
+      setPasos(data || []);
+    } catch (err) {
+      console.error('Error cargando pasos:', err);
+    }
+  };
+
+  // Iniciar cronómetro
+  const iniciarCarrera = async () => {
+    if (!eventoSeleccionado) return;
+    setCorriendo(true);
+    setCronometroMs(0);
   };
 
   // Crono
@@ -70,8 +101,8 @@ export default function ControlPage() {
 
   // Registrar paso
   const registrarPaso = async () => {
-    if (!carrera || !dorsal.trim()) {
-      alert('Ingresa el dorsal');
+    if (!eventoSeleccionado || !dorsal.trim()) {
+      alert('Selecciona evento e ingresa dorsal');
       return;
     }
 
@@ -81,7 +112,7 @@ export default function ControlPage() {
       const vuelta = pasos.filter((p) => p.dorsal === dorsal.trim()).length + 1;
 
       const nuevoPaso = {
-        carrera_id: carrera.id,
+        carrera_id: eventoSeleccionado.id,
         dorsal: dorsal.trim(),
         vuelta: vuelta,
         tiempo_ms: cronometroMs,
@@ -101,13 +132,6 @@ export default function ControlPage() {
       setPasos([data, ...pasos]);
       setDorsal('');
       setCorredorInput('');
-
-      // Auto-detección de cierre de vuelta (cuando repite dorsal)
-      const mismaVuelta = pasos.filter((p) => p.vuelta === vuelta);
-      if (mismaVuelta.some((p) => p.dorsal === dorsal.trim())) {
-        // Cerró la vuelta, es la siguiente
-        console.log('Vuelta cerrada, siguiente comenzó');
-      }
     } catch (err) {
       console.error(err);
       alert('Error al registrar paso');
@@ -129,51 +153,76 @@ export default function ControlPage() {
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
-        <div className="bg-[#0d2240] text-white rounded-xl p-6 mb-6">
-          <h1 className="text-3xl font-bold mb-2">Control de Carrera</h1>
-          <p className="text-gray-300">XCC/XCO en vivo - La Copa</p>
+        <div className="bg-[#0d2240] text-white rounded-xl p-6 mb-6 flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold mb-2">Control de Carrera</h1>
+            <p className="text-gray-300">XCC/XCO en vivo - La Copa</p>
+          </div>
+          <Link
+            href="/"
+            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
+          >
+            ← Volver
+          </Link>
         </div>
 
-        {/* Si no hay carrera seleccionada */}
-        {!carrera && (
+        {/* Si no hay evento seleccionado */}
+        {!eventoSeleccionado && (
           <div className="bg-white rounded-xl shadow-md p-8 text-center">
             <p className="text-gray-600 mb-4">Selecciona una carrera para comenzar</p>
-            <button
-              onClick={() => alert('Botón para seleccionar carrera (próximo paso)')}
-              className="bg-[#1a4f8b] text-white px-6 py-2 rounded-lg hover:bg-[#0d2240]"
-            >
-              Seleccionar carrera
-            </button>
+            {eventos.length === 0 ? (
+              <p className="text-sm text-gray-500 mb-4">No hay eventos programados. Ve a Cronograma para crear uno.</p>
+            ) : (
+              <div className="flex gap-2 flex-wrap justify-center">
+                {eventos.map((evento) => (
+                  <button
+                    key={evento.id}
+                    onClick={() => setEventoSeleccionado(evento)}
+                    className="bg-[#1a4f8b] text-white px-4 py-2 rounded-lg hover:bg-[#0d2240]"
+                  >
+                    {evento.categoria} - {evento.tipo}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Si hay carrera activa */}
-        {carrera && (
+        {/* Si hay evento seleccionado */}
+        {eventoSeleccionado && (
           <div className="space-y-6">
-            {/* Info de carrera */}
+            {/* Info de evento */}
             <div className="bg-white rounded-xl shadow-md p-6">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                 <div>
                   <p className="text-gray-600 text-sm">Tipo</p>
-                  <p className="text-2xl font-bold text-[#0d2240]">{carrera.tipo}</p>
+                  <p className="text-2xl font-bold text-[#0d2240]">{eventoSeleccionado.tipo}</p>
                 </div>
                 <div>
                   <p className="text-gray-600 text-sm">Categoría</p>
-                  <p className="text-2xl font-bold text-[#0d2240]">{carrera.categoria}</p>
+                  <p className="text-2xl font-bold text-[#0d2240]">{eventoSeleccionado.categoria}</p>
                 </div>
                 <div>
                   <p className="text-gray-600 text-sm">
-                    {carrera.tipo === 'XCC' ? 'Duración' : 'Vueltas'}
+                    {eventoSeleccionado.tipo === 'XCC' ? 'Duración' : 'Vueltas'}
                   </p>
                   <p className="text-2xl font-bold text-[#0d2240]">
-                    {carrera.tipo === 'XCC' ? `${carrera.duracion_minutos}min` : `${carrera.vueltas_totales}v`}
+                    {eventoSeleccionado.tipo === 'XCC' ? `${eventoSeleccionado.duracion_minutos}min` : `${eventoSeleccionado.vueltas_totales}v`}
                   </p>
                 </div>
                 <div>
                   <p className="text-gray-600 text-sm">Estado</p>
                   <p className={`text-2xl font-bold ${corriendo ? 'text-green-600' : 'text-yellow-600'}`}>
-                    {corriendo ? 'EN VIVO' : 'Pendiente'}
+                    {corriendo ? 'EN VIVO' : 'Parado'}
                   </p>
+                </div>
+                <div>
+                  <button
+                    onClick={() => setEventoSeleccionado(null)}
+                    className="text-red-600 hover:text-red-800 font-medium"
+                  >
+                    ✕ Cambiar
+                  </button>
                 </div>
               </div>
             </div>
