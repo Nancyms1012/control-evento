@@ -172,7 +172,7 @@ export default function ControlPage() {
         <div className="bg-[#0d2240] text-white rounded-xl p-6 mb-6 flex justify-between items-center">
           <div>
             <h1 className="text-3xl font-bold mb-2">Control de Carrera</h1>
-            <p className="text-gray-300">XCC/XCO en vivo - La Copa</p>
+            <p className="text-gray-300">VII Fecha Sarapiquí - La Copa</p>
           </div>
           <Link
             href="/"

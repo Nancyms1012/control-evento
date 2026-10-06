@@ -9,7 +9,7 @@ export default function Home() {
       <div className="bg-[#0d2240] bg-opacity-50 backdrop-blur py-6 border-b border-white border-opacity-10">
         <div className="max-w-4xl mx-auto px-4">
           <h1 className="text-4xl font-bold text-white">Control de Evento</h1>
-          <p className="text-gray-300">La Copa - XCC/XCO en tiempo real</p>
+          <p className="text-gray-300">La Copa - VII Fecha Sarapiquí · 31 Oct - 01 Nov</p>
         </div>
       </div>
 
