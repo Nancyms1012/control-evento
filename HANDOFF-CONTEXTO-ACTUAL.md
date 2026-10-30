@@ -139,7 +139,26 @@ Una vez que Nancy responda, implementar: select de categorías + carga CSV (con 
 
 ## 📋 PENDIENTES FUTUROS (control-evento, mencionados antes)
 - Página `/resultados` (rankings UCI-style con tabla de puntos XCC/XCO de la Guía Técnica)
-- Lógica XCC: regla del 80%, cierre de vuelta, DNF
+- **Lógica XCC: regla del 80%, cierre de vuelta, DNF — ESPECIFICACIÓN DETALLADA (confirmada con Nancy, 30 oct 2026):**
+  - **El cálculo es POR CATEGORÍA, no por tanda.** En el Control, a una misma hora pueden salir
+    varias categorías juntas (ej. 17:15 → Máster A, Máster B, Open) con un solo cronómetro, pero
+    **cada categoría tiene su propio líder y su propio tiempo de 1ª vuelta** → son cálculos
+    independientes. Esto YA es posible porque cada paso se guarda con su `categoria` en `pasos_carrera`.
+  - **Regla del 80% / cierre de vuelta:** tomar el **tiempo de la 1ª vuelta del LÍDER DE ESA CATEGORÍA**
+    (el primer corredor de esa categoría en completar la vuelta 1); con ese tiempo calcular cuántas
+    vueltas entran en la `duracion_minutos` del evento → definir la **última vuelta (campana)** de esa
+    categoría. Mostrar aviso de "última vuelta" por categoría.
+  - **Marca "-X lap" para los sacados por 80%:** a un corredor que se saca porque va a ser doblado
+    NO se le pone DNF genérico, sino **-X lap**, donde X = vueltas que le faltaban respecto al
+    LÍDER DE SU CATEGORÍA al momento de sacarlo. Ej: si lo sacan cuando al líder le faltaban 2 vueltas
+    para terminar → queda **-2 lap**; si faltaba 1 → **-1 lap**.
+  - **Orden en la clasificación final:** primero los que terminaron completos (por tiempo), y después
+    los sacados ordenados por cuántas vueltas les faltaban (los -1 lap antes que los -2 lap, etc.).
+  - ❓ PENDIENTE DE AFINAR con Nancy usando un ejemplo real: si la X se mide como "vueltas que le
+    faltaban al líder para terminar" o como "vueltas por detrás del líder al momento de sacarlo".
+  - ⚠️ DECISIÓN 30 oct: NO se implementó antes de la carrera (se tocaría el Control a minutos de usarlo
+    en vivo = riesgo). Para la VII Fecha se registran los pasos y los jueces aplican el 80% a criterio.
+    Implementar con calma DESPUÉS del evento y probar bien.
 - Pasos editables + audit trail
 - Export CSV/PDF de resultados
 - Integración ANCM (envío automático de resultados)
