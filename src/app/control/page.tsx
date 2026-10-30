@@ -188,21 +188,16 @@ export default function ControlPage() {
           (e) => e.categoria === categoria && eventoInscripcion.includes(e.tipo)
         );
       }
-      // Si no calza por categoría + evento:
-      if (!eventoDestino) {
-        if (eventosActivos.length === 1) {
-          // Solo hay una categoría en control -> asignar ahí igual, con aviso
-          eventoDestino = eventosActivos[0];
-          setAviso(
-            `Dorsal ${d}: ${categoria ? `categoría "${categoria}"${eventoInscripcion ? ` / evento "${eventoInscripcion}"` : ''} no calza con la tanda, ` : 'sin datos en inscripciones, '}se registró en "${eventoDestino.categoria}" (${eventoDestino.tipo}).`
-          );
-        } else {
-          setAviso(
-            `⚠️ Dorsal ${d}: ${categoria ? `su categoría "${categoria}" / evento "${eventoInscripcion}" no coincide con ninguna tanda activa` : 'no se encontró en inscripciones'}. No se registró. Revisá el dorsal o la selección.`
-          );
-          setGuardando(false);
-          return;
-        }
+
+      // REGLA CLAVE: el tiempo SIEMPRE se registra, aunque el dorsal no tenga datos.
+      // Si no se puede determinar la categoría exacta, se registra en la primera
+      // categoría activa de la tanda y se avisa para revisarlo/corregirlo luego.
+      let avisoReg: string;
+      if (eventoDestino) {
+        avisoReg = `✓ Dorsal ${d} → ${eventoDestino.categoria} (${nombre})`;
+      } else {
+        eventoDestino = eventosActivos[0];
+        avisoReg = `⚠️ Dorsal ${d} SIN datos (${categoria ? `categoría "${categoria}" no calza` : 'no está en inscripciones'}). Tiempo registrado en "${eventoDestino.categoria}" — revisá/corregí luego.`;
       }
 
       const vuelta = pasos.filter((p) => p.dorsal === d && p.carrera_id === eventoDestino!.id).length + 1;
@@ -228,14 +223,29 @@ export default function ControlPage() {
 
       setPasos([data, ...pasos]);
       setDorsal('');
-      if (!aviso) {
-        setAviso(`✓ Dorsal ${d} → ${eventoDestino.categoria} (${nombre})`);
-      }
+      setAviso(avisoReg);
     } catch (err) {
       console.error(err);
       alert('Error al registrar paso: ' + (err instanceof Error ? err.message : 'Desconocido'));
     } finally {
       setGuardando(false);
+    }
+  };
+
+  // Borrar un paso (por si el juez tecleó mal un dorsal)
+  const borrarPaso = async (paso: Paso) => {
+    if (!confirm(`¿Borrar el paso del dorsal ${paso.dorsal} (${formatoTiempo(paso.tiempo_ms)})?`)) return;
+    try {
+      const { error } = await supabaseClient
+        .from('pasos_carrera')
+        .delete()
+        .eq('id', paso.id);
+      if (error) throw error;
+      setPasos((prev) => prev.filter((p) => p.id !== paso.id));
+      setAviso(`🗑️ Paso del dorsal ${paso.dorsal} borrado.`);
+    } catch (err) {
+      console.error(err);
+      alert('Error al borrar el paso: ' + (err instanceof Error ? err.message : 'Desconocido'));
     }
   };
 
@@ -443,6 +453,7 @@ export default function ControlPage() {
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Dorsal</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Categoría</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Tiempo</th>
+                      <th className="px-4 py-2 text-center font-semibold text-gray-700">Acción</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -452,6 +463,15 @@ export default function ControlPage() {
                         <td className="px-4 py-2 font-bold text-lg">{paso.dorsal}</td>
                         <td className="px-4 py-2 text-xs text-gray-600">{paso.categoria || '—'}</td>
                         <td className="px-4 py-2 font-mono">{formatoTiempo(paso.tiempo_ms)}</td>
+                        <td className="px-4 py-2 text-center">
+                          <button
+                            onClick={() => borrarPaso(paso)}
+                            className="text-red-600 hover:text-red-800 text-sm font-medium"
+                            title="Borrar este paso"
+                          >
+                            🗑️ Borrar
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
