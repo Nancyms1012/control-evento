@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { supabaseClient } from '@/lib/supabase-client';
+import { TODAS_CATEGORIAS } from '@/lib/categorias';
 
 interface Evento {
   id: string;
@@ -164,13 +165,18 @@ export default function CronogramaPage() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
-                <input
-                  type="text"
+                <select
                   value={formulario.categoria}
                   onChange={(e) => setFormulario({ ...formulario, categoria: e.target.value })}
-                  placeholder="Élite"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1a4f8b]"
-                />
+                >
+                  <option value="">Seleccioná una categoría...</option>
+                  {TODAS_CATEGORIAS.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {formulario.tipo === 'XCC' && (
