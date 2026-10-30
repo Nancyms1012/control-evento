@@ -38,6 +38,10 @@ export default function CronogramaPage() {
       prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
     );
   };
+  // Edición de un evento ya cargado
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Partial<Evento>>({});
+  const [guardandoEdit, setGuardandoEdit] = useState(false);
   // Carga por CSV de varios eventos
   const [subiendoCSV, setSubiendoCSV] = useState(false);
   const [resultadoCSV, setResultadoCSV] = useState<{
@@ -133,6 +137,67 @@ export default function CronogramaPage() {
       setEventos(eventos.filter((e) => e.id !== id));
     } catch (err) {
       alert('Error al eliminar');
+    }
+  };
+
+  // Empezar a editar un evento: copiar sus datos al formulario de edición
+  const iniciarEdicion = (evento: Evento) => {
+    setEditandoId(evento.id);
+    setEditForm({
+      fecha: evento.fecha,
+      tipo: evento.tipo,
+      hora_salida: evento.hora_salida,
+      categoria: evento.categoria,
+      duracion_minutos: evento.duracion_minutos ?? 40,
+      vueltas_totales: evento.vueltas_totales ?? 7,
+    });
+  };
+
+  const cancelarEdicion = () => {
+    setEditandoId(null);
+    setEditForm({});
+  };
+
+  // Guardar cambios de un evento editado
+  const guardarEdicionEvento = async () => {
+    if (!editandoId) return;
+    if (!editForm.categoria || !editForm.fecha || !editForm.hora_salida) {
+      alert('Completá fecha, hora y categoría');
+      return;
+    }
+    setGuardandoEdit(true);
+    try {
+      const campos = {
+        fecha: editForm.fecha,
+        tipo: editForm.tipo,
+        hora_salida: editForm.hora_salida,
+        categoria: editForm.categoria,
+        duracion_minutos: editForm.tipo === 'XCC' ? editForm.duracion_minutos : null,
+        vueltas_totales: editForm.tipo === 'XCO' ? editForm.vueltas_totales : null,
+      };
+      const { data, error } = await supabaseClient
+        .from('cronograma')
+        .update(campos)
+        .eq('id', editandoId)
+        .select()
+        .single();
+      if (error) throw error;
+
+      setEventos((prev) =>
+        prev
+          .map((e) => (e.id === editandoId ? (data as Evento) : e))
+          .sort((a, b) =>
+            a.fecha === b.fecha
+              ? a.hora_salida.localeCompare(b.hora_salida)
+              : a.fecha.localeCompare(b.fecha)
+          )
+      );
+      cancelarEdicion();
+    } catch (err) {
+      console.error(err);
+      alert('Error al guardar los cambios');
+    } finally {
+      setGuardandoEdit(false);
     }
   };
 
@@ -512,39 +577,135 @@ export default function CronogramaPage() {
                 <div className="divide-y">
                   {eventos.map((evento) => (
                     <div key={evento.id} className="p-6 hover:bg-gray-50">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-3 mb-2">
-                            <span className="text-2xl">
-                              {evento.tipo === 'XCC' ? '⏱️' : '🔄'}
-                            </span>
-                            <div>
-                              <p className="font-bold text-[#0d2240]">
-                                {evento.categoria} - {evento.tipo}
-                              </p>
-                              <p className="text-sm text-gray-600">
-                                {evento.fecha} a las {evento.hora_salida}
-                              </p>
-                            </div>
+                      {editandoId === evento.id ? (
+                        /* ---- Modo edición inline ---- */
+                        <div className="space-y-3">
+                          <p className="font-bold text-[#0d2240] text-sm">Editando evento</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <label className="text-xs text-gray-600">
+                              Fecha
+                              <input
+                                type="date"
+                                value={editForm.fecha || ''}
+                                onChange={(e) => setEditForm({ ...editForm, fecha: e.target.value })}
+                                className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+                              />
+                            </label>
+                            <label className="text-xs text-gray-600">
+                              Hora salida
+                              <input
+                                type="time"
+                                value={editForm.hora_salida || ''}
+                                onChange={(e) => setEditForm({ ...editForm, hora_salida: e.target.value })}
+                                className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+                              />
+                            </label>
+                            <label className="text-xs text-gray-600">
+                              Tipo
+                              <select
+                                value={editForm.tipo || 'XCC'}
+                                onChange={(e) => setEditForm({ ...editForm, tipo: e.target.value as 'XCC' | 'XCO' })}
+                                className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+                              >
+                                <option value="XCC">XCC (Por tiempo)</option>
+                                <option value="XCO">XCO (Por vueltas)</option>
+                              </select>
+                            </label>
+                            {editForm.tipo === 'XCC' ? (
+                              <label className="text-xs text-gray-600">
+                                Duración (min)
+                                <input
+                                  type="number"
+                                  value={editForm.duracion_minutos ?? 40}
+                                  onChange={(e) => setEditForm({ ...editForm, duracion_minutos: parseInt(e.target.value) })}
+                                  className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+                                />
+                              </label>
+                            ) : (
+                              <label className="text-xs text-gray-600">
+                                Vueltas
+                                <input
+                                  type="number"
+                                  value={editForm.vueltas_totales ?? 7}
+                                  onChange={(e) => setEditForm({ ...editForm, vueltas_totales: parseInt(e.target.value) })}
+                                  className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+                                />
+                              </label>
+                            )}
                           </div>
-                          {evento.tipo === 'XCC' && (
-                            <p className="text-sm text-gray-600">
-                              ⏱️ Duración: {evento.duracion_minutos} minutos
-                            </p>
-                          )}
-                          {evento.tipo === 'XCO' && (
-                            <p className="text-sm text-gray-600">
-                              🔄 Vueltas: {evento.vueltas_totales}
-                            </p>
-                          )}
+                          <label className="text-xs text-gray-600 block">
+                            Categoría
+                            <select
+                              value={editForm.categoria || ''}
+                              onChange={(e) => setEditForm({ ...editForm, categoria: e.target.value })}
+                              className="w-full mt-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+                            >
+                              <option value="">Seleccioná una categoría...</option>
+                              {CATEGORIAS_CARRERA.map((cat) => (
+                                <option key={cat} value={cat}>{cat}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={guardarEdicionEvento}
+                              disabled={guardandoEdit}
+                              className="bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 text-sm font-medium disabled:opacity-50"
+                            >
+                              {guardandoEdit ? 'Guardando...' : '✓ Guardar'}
+                            </button>
+                            <button
+                              onClick={cancelarEdicion}
+                              className="bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-300 text-sm"
+                            >
+                              ✖ Cancelar
+                            </button>
+                          </div>
                         </div>
-                        <button
-                          onClick={() => eliminarEvento(evento.id)}
-                          className="text-red-600 hover:text-red-800 text-sm font-medium"
-                        >
-                          ✕ Eliminar
-                        </button>
-                      </div>
+                      ) : (
+                        /* ---- Vista normal ---- */
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <span className="text-2xl">
+                                {evento.tipo === 'XCC' ? '⏱️' : '🔄'}
+                              </span>
+                              <div>
+                                <p className="font-bold text-[#0d2240]">
+                                  {evento.categoria} - {evento.tipo}
+                                </p>
+                                <p className="text-sm text-gray-600">
+                                  {evento.fecha} a las {evento.hora_salida}
+                                </p>
+                              </div>
+                            </div>
+                            {evento.tipo === 'XCC' && (
+                              <p className="text-sm text-gray-600">
+                                ⏱️ Duración: {evento.duracion_minutos} minutos
+                              </p>
+                            )}
+                            {evento.tipo === 'XCO' && (
+                              <p className="text-sm text-gray-600">
+                                🔄 Vueltas: {evento.vueltas_totales}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex gap-3 flex-shrink-0">
+                            <button
+                              onClick={() => iniciarEdicion(evento)}
+                              className="text-[#1a4f8b] hover:text-[#0d2240] text-sm font-medium"
+                            >
+                              ✏️ Editar
+                            </button>
+                            <button
+                              onClick={() => eliminarEvento(evento.id)}
+                              className="text-red-600 hover:text-red-800 text-sm font-medium"
+                            >
+                              ✕ Eliminar
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
