@@ -23,12 +23,20 @@ export default function CronogramaPage() {
     fecha: new Date().toISOString().split('T')[0],
     tipo: 'XCC' as 'XCC' | 'XCO',
     hora_salida: '08:00',
-    categoria: '',
     duracion_minutos: 40,
     vueltas_totales: 7,
     descripcion: '',
   });
+  // Varias categorías pueden salir a la misma hora -> selección múltiple
+  const [categoriasSeleccionadas, setCategoriasSeleccionadas] = useState<string[]>([]);
   const [guardando, setGuardando] = useState(false);
+
+  // Marcar/desmarcar una categoría del selector múltiple
+  const toggleCategoria = (cat: string) => {
+    setCategoriasSeleccionadas((prev) =>
+      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
+    );
+  };
   // Carga por CSV de varios eventos
   const [subiendoCSV, setSubiendoCSV] = useState(false);
   const [resultadoCSV, setResultadoCSV] = useState<{
@@ -62,36 +70,47 @@ export default function CronogramaPage() {
 
   const agregarEvento = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formulario.categoria.trim()) {
-      alert('Ingresa la categoría');
+    if (categoriasSeleccionadas.length === 0) {
+      alert('Seleccioná al menos una categoría');
       return;
     }
 
     setGuardando(true);
     try {
+      // Se crea un evento por cada categoría seleccionada, todos con la misma
+      // fecha/hora/tipo (varias categorías pueden salir a la misma hora).
+      const aInsertar = categoriasSeleccionadas.map((cat) => ({
+        fecha: formulario.fecha,
+        hora_salida: formulario.hora_salida,
+        tipo: formulario.tipo,
+        categoria: cat,
+        descripcion: formulario.descripcion,
+        duracion_minutos: formulario.tipo === 'XCC' ? formulario.duracion_minutos : null,
+        vueltas_totales: formulario.tipo === 'XCO' ? formulario.vueltas_totales : null,
+      }));
+
       const { data, error } = await supabaseClient
         .from('cronograma')
-        .insert({
-          ...formulario,
-          duracion_minutos: formulario.tipo === 'XCC' ? formulario.duracion_minutos : null,
-          vueltas_totales: formulario.tipo === 'XCO' ? formulario.vueltas_totales : null,
-        })
-        .select()
-        .single();
+        .insert(aInsertar)
+        .select();
 
       if (error) throw error;
 
-      setEventos([...eventos, data]);
+      setEventos([...eventos, ...(data || [])]);
       setFormulario({
         fecha: new Date().toISOString().split('T')[0],
         tipo: 'XCC',
         hora_salida: '08:00',
-        categoria: '',
         duracion_minutos: 40,
         vueltas_totales: 7,
         descripcion: '',
       });
-      alert('Evento agregado correctamente');
+      setCategoriasSeleccionadas([]);
+      alert(
+        (data?.length || 0) === 1
+          ? 'Evento agregado correctamente'
+          : `${data?.length || 0} eventos agregados (misma hora)`
+      );
     } catch (err) {
       console.error('Error:', err);
       alert('Error al agregar evento');
@@ -383,19 +402,54 @@ export default function CronogramaPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
-                <select
-                  value={formulario.categoria}
-                  onChange={(e) => setFormulario({ ...formulario, categoria: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1a4f8b]"
-                >
-                  <option value="">Seleccioná una categoría...</option>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Categorías <span className="text-gray-400 font-normal">(podés elegir varias que salen a la misma hora)</span>
+                </label>
+
+                {/* Chips de las categorías elegidas */}
+                {categoriasSeleccionadas.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {categoriasSeleccionadas.map((cat) => (
+                      <span
+                        key={cat}
+                        className="inline-flex items-center gap-1 bg-[#1a4f8b] text-white text-xs px-2 py-1 rounded-full"
+                      >
+                        {cat}
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoria(cat)}
+                          className="hover:bg-white/20 rounded-full w-4 h-4 flex items-center justify-center leading-none"
+                          aria-label={`Quitar ${cat}`}
+                        >
+                          &times;
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Lista de categorías con checkboxes */}
+                <div className="border border-gray-300 rounded-lg max-h-48 overflow-y-auto divide-y divide-gray-100">
                   {TODAS_CATEGORIAS.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat}
-                    </option>
+                    <label
+                      key={cat}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={categoriasSeleccionadas.includes(cat)}
+                        onChange={() => toggleCategoria(cat)}
+                        className="rounded border-gray-300 text-[#1a4f8b] focus:ring-[#1a4f8b]"
+                      />
+                      <span>{cat}</span>
+                    </label>
                   ))}
-                </select>
+                </div>
+                {categoriasSeleccionadas.length > 1 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Se crearán {categoriasSeleccionadas.length} eventos con la misma hora de salida.
+                  </p>
+                )}
               </div>
 
               {formulario.tipo === 'XCC' && (
@@ -431,7 +485,11 @@ export default function CronogramaPage() {
                 disabled={guardando}
                 className="w-full bg-[#1a4f8b] text-white font-bold py-2 rounded-lg hover:bg-[#0d2240] disabled:opacity-50"
               >
-                {guardando ? 'Guardando...' : '+ Agregar'}
+                {guardando
+                  ? 'Guardando...'
+                  : categoriasSeleccionadas.length > 1
+                    ? `+ Agregar ${categoriasSeleccionadas.length} eventos`
+                    : '+ Agregar'}
               </button>
             </form>
           </div>
