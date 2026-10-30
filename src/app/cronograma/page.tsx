@@ -29,6 +29,14 @@ export default function CronogramaPage() {
     descripcion: '',
   });
   const [guardando, setGuardando] = useState(false);
+  // Carga por CSV de varios eventos
+  const [subiendoCSV, setSubiendoCSV] = useState(false);
+  const [resultadoCSV, setResultadoCSV] = useState<{
+    insertados: number;
+    filasInvalidas: number;
+    total: number;
+    errores: string[];
+  } | null>(null);
 
   useEffect(() => {
     cargarEventos();
@@ -108,6 +116,164 @@ export default function CronogramaPage() {
     }
   };
 
+  // Descargar plantilla CSV para cargar varios eventos de una vez.
+  // Columnas: fecha ; hora_salida ; categoria ; tiempo_vueltas ; evento
+  // tiempo_vueltas = minutos si evento es XCC, cantidad de vueltas si es XCO.
+  const descargarPlantillaEventos = () => {
+    const filasCsv = [
+      'fecha;hora_salida;categoria;tiempo_vueltas;evento',
+      '2026-10-31;08:00;Élite Masculino;40;XCC',
+      '2026-11-01;09:30;Élite Masculino;7;XCO',
+    ];
+    const csv = filasCsv.join('\r\n');
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'plantilla_cronograma.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Parsea una línea CSV respetando comillas. Acepta separador ; o ,
+  const parsearLineaCSV = (linea: string, sep: string): string[] => {
+    const campos: string[] = [];
+    let actual = '';
+    let entreComillas = false;
+    for (let i = 0; i < linea.length; i++) {
+      const c = linea[i];
+      if (c === '"') {
+        if (entreComillas && linea[i + 1] === '"') {
+          actual += '"';
+          i++;
+        } else {
+          entreComillas = !entreComillas;
+        }
+      } else if (c === sep && !entreComillas) {
+        campos.push(actual);
+        actual = '';
+      } else {
+        actual += c;
+      }
+    }
+    campos.push(actual);
+    return campos.map((s) => s.trim());
+  };
+
+  // Normaliza la fecha a formato ISO (AAAA-MM-DD). Acepta AAAA-MM-DD o DD/MM/AAAA.
+  const normalizarFecha = (valor: string): string | null => {
+    const v = valor.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+    const m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) {
+      const dd = m[1].padStart(2, '0');
+      const mm = m[2].padStart(2, '0');
+      return `${m[3]}-${mm}-${dd}`;
+    }
+    return null;
+  };
+
+  // Subir varios eventos del cronograma desde un CSV
+  const subirEventosCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // permite volver a subir el mismo archivo
+    if (!file) return;
+
+    setSubiendoCSV(true);
+    setResultadoCSV(null);
+    try {
+      let texto = await file.text();
+      if (texto.charCodeAt(0) === 0xfeff) texto = texto.slice(1);
+
+      const lineas = texto.split(/\r?\n/).filter((l) => l.trim() !== '');
+      if (lineas.length === 0) {
+        alert('El archivo está vacío.');
+        setSubiendoCSV(false);
+        return;
+      }
+
+      // Detectar separador
+      const primera = lineas[0];
+      const sep = (primera.split(';').length - 1) >= (primera.split(',').length - 1) ? ';' : ',';
+
+      // Detectar encabezado
+      const primeraMin = primera.toLowerCase();
+      const hayEncabezado =
+        primeraMin.includes('fecha') ||
+        primeraMin.includes('hora') ||
+        primeraMin.includes('categoria') ||
+        primeraMin.includes('categoría') ||
+        primeraMin.includes('evento');
+      const filasDatos = hayEncabezado ? lineas.slice(1) : lineas;
+
+      // Construir eventos a insertar
+      const aInsertar: Array<Record<string, unknown>> = [];
+      const errores: string[] = [];
+      let filasInvalidas = 0;
+
+      filasDatos.forEach((linea, idx) => {
+        const n = idx + 1; // número de fila de datos (para mensajes)
+        const cols = parsearLineaCSV(linea, sep);
+        const fechaRaw = cols[0] || '';
+        const horaRaw = cols[1] || '';
+        const categoria = cols[2] || '';
+        const tiempoVueltasRaw = cols[3] || '';
+        const eventoRaw = (cols[4] || '').toUpperCase().trim();
+
+        const fecha = normalizarFecha(fechaRaw);
+        const tipo = eventoRaw === 'XCC' || eventoRaw === 'XCO' ? eventoRaw : null;
+        const tiempoVueltas = parseInt(tiempoVueltasRaw, 10);
+
+        if (!fecha || !horaRaw || !categoria || !tipo || isNaN(tiempoVueltas)) {
+          filasInvalidas++;
+          errores.push(`Fila ${n}: datos incompletos o inválidos (fecha/hora/categoría/tiempo-vueltas/evento)`);
+          return;
+        }
+
+        aInsertar.push({
+          fecha,
+          hora_salida: horaRaw,
+          categoria,
+          tipo,
+          duracion_minutos: tipo === 'XCC' ? tiempoVueltas : null,
+          vueltas_totales: tipo === 'XCO' ? tiempoVueltas : null,
+          descripcion: '',
+        });
+      });
+
+      if (aInsertar.length === 0) {
+        setResultadoCSV({ insertados: 0, filasInvalidas, total: filasDatos.length, errores });
+        setSubiendoCSV(false);
+        return;
+      }
+
+      const { data, error } = await supabaseClient
+        .from('cronograma')
+        .insert(aInsertar)
+        .select();
+
+      if (error) {
+        alert('Error al guardar en Supabase: ' + error.message);
+        setSubiendoCSV(false);
+        return;
+      }
+
+      setResultadoCSV({
+        insertados: data?.length || 0,
+        filasInvalidas,
+        total: filasDatos.length,
+        errores,
+      });
+      // Refrescar la lista
+      cargarEventos();
+    } catch (err) {
+      console.error(err);
+      alert('Error procesando el archivo: ' + (err instanceof Error ? err.message : 'desconocido'));
+    } finally {
+      setSubiendoCSV(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-6xl mx-auto">
@@ -117,13 +283,66 @@ export default function CronogramaPage() {
             <h1 className="text-3xl font-bold text-[#0d2240]">Cronograma de Carreras</h1>
             <p className="text-gray-600">Gestión de horarios y categorías</p>
           </div>
-          <Link
-            href="/"
-            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
-          >
-            ← Volver
-          </Link>
+          <div className="flex gap-2 flex-wrap items-center">
+            <label className={`bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 text-sm font-medium cursor-pointer ${subiendoCSV ? 'opacity-50 pointer-events-none' : ''}`}>
+              {subiendoCSV ? 'Subiendo...' : '📋 Cargar eventos (CSV)'}
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={subirEventosCSV}
+                disabled={subiendoCSV}
+                className="hidden"
+              />
+            </label>
+            <button
+              onClick={descargarPlantillaEventos}
+              className="bg-white text-amber-700 border border-amber-500 px-4 py-2 rounded-lg hover:bg-amber-50 text-sm"
+            >
+              Plantilla
+            </button>
+            <Link
+              href="/"
+              className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
+            >
+              ← Volver
+            </Link>
+          </div>
         </div>
+
+        {/* Resultado de la carga CSV */}
+        {resultadoCSV && (
+          <div className="mb-6 bg-white rounded-xl shadow-md overflow-hidden border border-amber-200">
+            <div className="bg-amber-500 text-white px-6 py-3 flex items-center justify-between">
+              <h2 className="font-bold">Resultado de la carga CSV</h2>
+              <button onClick={() => setResultadoCSV(null)} className="text-white hover:bg-white/20 rounded-lg w-7 h-7 flex items-center justify-center">&times;</button>
+            </div>
+            <div className="p-6 text-sm space-y-3">
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="bg-green-50 rounded-lg p-3">
+                  <p className="text-2xl font-bold text-green-700">{resultadoCSV.insertados}</p>
+                  <p className="text-gray-600 text-xs">Eventos agregados</p>
+                </div>
+                <div className="bg-red-50 rounded-lg p-3">
+                  <p className="text-2xl font-bold text-red-700">{resultadoCSV.filasInvalidas}</p>
+                  <p className="text-gray-600 text-xs">Filas inválidas</p>
+                </div>
+                <div className="bg-gray-100 rounded-lg p-3">
+                  <p className="text-2xl font-bold text-gray-700">{resultadoCSV.total}</p>
+                  <p className="text-gray-600 text-xs">Filas procesadas</p>
+                </div>
+              </div>
+              {resultadoCSV.errores.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 max-h-40 overflow-y-auto">
+                  <ul className="list-disc list-inside text-red-800 space-y-0.5 text-xs">
+                    {resultadoCSV.errores.map((er, i) => (
+                      <li key={i}>{er}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Formulario */}
