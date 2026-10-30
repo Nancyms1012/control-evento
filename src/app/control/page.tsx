@@ -33,12 +33,26 @@ export default function ControlPage() {
   const [categoriasSeleccionadas, setCategoriasSeleccionadas] = useState<string[]>([]);
   const [controlActivo, setControlActivo] = useState(false); // ya se eligió la tanda y se está cronometrando
   const [pasos, setPasos] = useState<Paso[]>([]);
-  const [cronometroMs, setCronometroMs] = useState(0);
-  const [corriendo, setCorriendo] = useState(false);
+  // CRONÓMETRO POR HORA REAL (no por acumulación): así no se atrasa aunque se
+  // bloquee la pantalla o la pestaña pase a segundo plano, y se recupera al recargar.
+  // salidaAt = timestamp (ms) de cuándo se dio la salida (null = sin salida)
+  // pausadoEn = tiempo transcurrido congelado (ms) cuando está en pausa; null = corriendo
+  const [salidaAt, setSalidaAt] = useState<number | null>(null);
+  const [pausadoEn, setPausadoEn] = useState<number | null>(null);
+  const [cronometroMs, setCronometroMs] = useState(0); // solo para refrescar la pantalla
   const [dorsal, setDorsal] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const corriendo = salidaAt != null && pausadoEn == null;
+
+  // Tiempo transcurrido actual en ms, calculado SIEMPRE contra el reloj real
+  const calcularMs = () => {
+    if (salidaAt == null) return 0;
+    if (pausadoEn != null) return pausadoEn;
+    return Date.now() - salidaAt;
+  };
 
   useEffect(() => {
     cargarEventos();
@@ -109,44 +123,94 @@ export default function ControlPage() {
     setCategoriasSeleccionadas(cats);
   };
 
+  // Guardar/leer el estado del crono en localStorage (sobrevive recargas y caídas)
+  const guardarCrono = (clave: string | null, salida: number | null, pausa: number | null) => {
+    try {
+      if (clave && salida != null) {
+        localStorage.setItem('controlEvento_crono', JSON.stringify({ clave, salidaAt: salida, pausadoEn: pausa }));
+      } else {
+        localStorage.removeItem('controlEvento_crono');
+      }
+    } catch {}
+  };
+
   // Comenzar el control de la tanda con las categorías marcadas.
-  // Arranca el cronómetro AL INSTANTE (un solo clic da la salida y empieza a contar,
-  // para no perder segundos teniendo que tocar otro botón después).
+  // Da la salida AL INSTANTE guardando la hora real de salida (Date.now()).
   const comenzarControl = async () => {
     if (!tandaSeleccionada || categoriasSeleccionadas.length === 0) {
       alert('Seleccioná una tanda y al menos una categoría');
       return;
     }
+    const ahora = Date.now();
     setControlActivo(true);
+    setSalidaAt(ahora);
+    setPausadoEn(null);
     setCronometroMs(0);
-    setCorriendo(true);
+    guardarCrono(tandaSeleccionada, ahora, null);
     // Cargar pasos en segundo plano (no bloquea el arranque del crono)
     cargarPasos(idsActivos);
   };
 
   const salirControl = () => {
+    if (!confirm('¿Salir del control de esta tanda? El cronómetro se detiene.')) return;
     setControlActivo(false);
-    setCorriendo(false);
+    setSalidaAt(null);
+    setPausadoEn(null);
     setCronometroMs(0);
     setPasos([]);
     setTandaSeleccionada(null);
     setCategoriasSeleccionadas([]);
+    guardarCrono(null, null, null);
   };
 
-  // Reanudar el crono SIN reiniciarlo (no borra el tiempo acumulado).
+  // Pausar: congela el tiempo transcurrido actual.
+  const pausarCrono = () => {
+    const ms = calcularMs();
+    setPausadoEn(ms);
+    guardarCrono(tandaSeleccionada, salidaAt, ms);
+  };
+
+  // Reanudar: recalcula la salida para que el tiempo siga desde donde estaba.
   const reanudarCrono = () => {
-    setCorriendo(true);
+    if (pausadoEn == null) return;
+    const nuevaSalida = Date.now() - pausadoEn;
+    setSalidaAt(nuevaSalida);
+    setPausadoEn(null);
+    guardarCrono(tandaSeleccionada, nuevaSalida, null);
   };
 
+  // Refrescar la pantalla cada 100ms recalculando contra el reloj real.
+  // (No acumula; aunque la pestaña se congele, al volver muestra el tiempo correcto.)
   useEffect(() => {
-    if (!corriendo) return;
     timerRef.current = setInterval(() => {
-      setCronometroMs((ms) => ms + 100);
+      setCronometroMs(calcularMs());
     }, 100);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [corriendo]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [salidaAt, pausadoEn]);
+
+  // Al cargar la página, recuperar una tanda en curso (si la hay) tras recargar/caída.
+  useEffect(() => {
+    if (eventos.length === 0) return;
+    try {
+      const raw = localStorage.getItem('controlEvento_crono');
+      if (!raw) return;
+      const g = JSON.parse(raw) as { clave: string; salidaAt: number; pausadoEn: number | null };
+      if (!g.clave || !tandas.get(g.clave)) return;
+      if (controlActivo) return; // ya hay una activa
+      const cats = (tandas.get(g.clave)?.eventos || []).map((e) => e.categoria);
+      setTandaSeleccionada(g.clave);
+      setCategoriasSeleccionadas(cats);
+      setSalidaAt(g.salidaAt);
+      setPausadoEn(g.pausadoEn ?? null);
+      setControlActivo(true);
+      const ids = (tandas.get(g.clave)?.eventos || []).map((e) => e.id);
+      cargarPasos(ids);
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventos]);
 
   // Registrar paso: busca la categoría del dorsal y lo asigna al evento correcto
   const registrarPaso = async () => {
@@ -206,7 +270,7 @@ export default function ControlPage() {
         carrera_id: eventoDestino.id,
         dorsal: d,
         vuelta,
-        tiempo_ms: cronometroMs,
+        tiempo_ms: calcularMs(), // tiempo exacto contra el reloj real en este instante
         nombre,
         equipo,
         categoria: eventoDestino.categoria,
@@ -392,7 +456,7 @@ export default function ControlPage() {
                   {formatoTiempo(cronometroMs)}
                 </div>
                 <button
-                  onClick={corriendo ? () => setCorriendo(false) : reanudarCrono}
+                  onClick={corriendo ? pausarCrono : reanudarCrono}
                   className={`px-8 py-3 rounded-lg font-bold text-white text-lg ${
                     corriendo ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
                   }`}
