@@ -149,13 +149,16 @@ Una vez que Nancy responda, implementar: select de categorías + carga CSV (con 
     vueltas entran en la `duracion_minutos` del evento → definir la **última vuelta (campana)** de esa
     categoría. Mostrar aviso de "última vuelta" por categoría.
   - **Marca "-X lap" para los sacados por 80%:** a un corredor que se saca porque va a ser doblado
-    NO se le pone DNF genérico, sino **-X lap**, donde X = vueltas que le faltaban respecto al
-    LÍDER DE SU CATEGORÍA al momento de sacarlo. Ej: si lo sacan cuando al líder le faltaban 2 vueltas
-    para terminar → queda **-2 lap**; si faltaba 1 → **-1 lap**.
-  - **Orden en la clasificación final:** primero los que terminaron completos (por tiempo), y después
-    los sacados ordenados por cuántas vueltas les faltaban (los -1 lap antes que los -2 lap, etc.).
-  - ❓ PENDIENTE DE AFINAR con Nancy usando un ejemplo real: si la X se mide como "vueltas que le
-    faltaban al líder para terminar" o como "vueltas por detrás del líder al momento de sacarlo".
+    NO se le pone DNF genérico, sino **-X lap**. FÓRMULA EXACTA (confirmada por Nancy con ejemplo):
+    **X = (vueltas TOTALES que dio el líder de la categoría) − (vueltas COMPLETADAS por el corredor sacado).**
+    - Cuentan las **vueltas COMPLETADAS** (cruzadas por meta = pasos registrados en esa categoría),
+      NO la vuelta "en la que iba".
+    - Ejemplo de Nancy: el líder dio 5 vueltas; al corredor lo sacan **antes de terminar la 3ª**
+      (o sea tenía 2 vueltas completadas) → X = 5 − 2 = **3 → queda "-3 lap"**.
+    - En términos de datos: vueltas del corredor = nº de pasos de ese dorsal en esa categoría;
+      vueltas del líder = máximo de pasos entre los corredores de esa categoría.
+  - **Orden en la clasificación final:** primero los que terminaron completos (por tiempo); después
+    los sacados ordenados por menos vueltas perdidas (los -1 lap antes que los -2 lap, etc.).
   - ⚠️ DECISIÓN 30 oct: NO se implementó antes de la carrera (se tocaría el Control a minutos de usarlo
     en vivo = riesgo). Para la VII Fecha se registran los pasos y los jueces aplican el 80% a criterio.
     Implementar con calma DESPUÉS del evento y probar bien.
