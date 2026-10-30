@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { supabaseClient } from '@/lib/supabase-client';
-import { TODAS_CATEGORIAS } from '@/lib/categorias';
+// Solo categorías de La Copa (el control de tiempos no incluye Copa Kids)
+import { CATEGORIAS_CARRERA } from '@/lib/categorias';
 
 interface Evento {
   id: string;
@@ -430,7 +431,7 @@ export default function CronogramaPage() {
 
                 {/* Lista de categorías con checkboxes */}
                 <div className="border border-gray-300 rounded-lg max-h-48 overflow-y-auto divide-y divide-gray-100">
-                  {TODAS_CATEGORIAS.map((cat) => (
+                  {CATEGORIAS_CARRERA.map((cat) => (
                     <label
                       key={cat}
                       className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 cursor-pointer"
