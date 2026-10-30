@@ -109,14 +109,19 @@ export default function ControlPage() {
     setCategoriasSeleccionadas(cats);
   };
 
-  // Comenzar el control de la tanda con las categorías marcadas
+  // Comenzar el control de la tanda con las categorías marcadas.
+  // Arranca el cronómetro AL INSTANTE (un solo clic da la salida y empieza a contar,
+  // para no perder segundos teniendo que tocar otro botón después).
   const comenzarControl = async () => {
     if (!tandaSeleccionada || categoriasSeleccionadas.length === 0) {
       alert('Seleccioná una tanda y al menos una categoría');
       return;
     }
     setControlActivo(true);
-    await cargarPasos(idsActivos);
+    setCronometroMs(0);
+    setCorriendo(true);
+    // Cargar pasos en segundo plano (no bloquea el arranque del crono)
+    cargarPasos(idsActivos);
   };
 
   const salirControl = () => {
@@ -128,9 +133,9 @@ export default function ControlPage() {
     setCategoriasSeleccionadas([]);
   };
 
-  const iniciarCarrera = () => {
+  // Reanudar el crono SIN reiniciarlo (no borra el tiempo acumulado).
+  const reanudarCrono = () => {
     setCorriendo(true);
-    setCronometroMs(0);
   };
 
   useEffect(() => {
@@ -324,10 +329,13 @@ export default function ControlPage() {
                       <button
                         onClick={comenzarControl}
                         disabled={categoriasSeleccionadas.length === 0}
-                        className="mt-3 w-full bg-[#1a4f8b] text-white font-bold py-3 rounded-lg hover:bg-[#0d2240] disabled:opacity-50"
+                        className="mt-3 w-full bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 disabled:opacity-50 text-lg"
                       >
-                        Comenzar control →
+                        ▶️ Dar salida (inicia el crono)
                       </button>
+                      <p className="text-xs text-gray-500 mt-1 text-center">
+                        El cronómetro arranca al instante con este botón.
+                      </p>
                     </>
                   )}
                 </div>
@@ -374,12 +382,12 @@ export default function ControlPage() {
                   {formatoTiempo(cronometroMs)}
                 </div>
                 <button
-                  onClick={corriendo ? () => setCorriendo(false) : iniciarCarrera}
+                  onClick={corriendo ? () => setCorriendo(false) : reanudarCrono}
                   className={`px-8 py-3 rounded-lg font-bold text-white text-lg ${
                     corriendo ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
                   }`}
                 >
-                  {corriendo ? '⏸️ Pausar' : '▶️ Iniciar'}
+                  {corriendo ? '⏸️ Pausar' : '▶️ Reanudar'}
                 </button>
               </div>
 
