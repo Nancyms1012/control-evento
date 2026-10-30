@@ -8,9 +8,12 @@ interface Carrera {
   id: string;
   tipo: 'XCC' | 'XCO';
   categoria: string;
+  fecha?: string;
+  hora_salida?: string;
   duracion_minutos?: number;
   vueltas_totales?: number;
-  estado: 'pendiente' | 'en_curso' | 'finalizada';
+  // `cronograma` no tiene columna `estado`; se deja opcional y se deriva en la UI.
+  estado?: 'pendiente' | 'en_curso' | 'finalizada';
 }
 
 interface Paso {
@@ -48,11 +51,12 @@ export default function TrackingPage() {
 
   const cargarCarreras = async () => {
     try {
+      // Leer los eventos del cronograma (antes leía de `carreras`, que está vacía).
       const { data, error } = await supabaseClient
-        .from('carreras')
+        .from('cronograma')
         .select('*')
-        .order('created_at', { ascending: false })
-        .limit(5);
+        .order('fecha', { ascending: true })
+        .order('hora_salida', { ascending: true });
 
       if (error) throw error;
       setCarreras(data || []);
@@ -167,7 +171,7 @@ export default function TrackingPage() {
             <option value="">Seleccionar carrera...</option>
             {carreras.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.tipo} - {c.categoria} ({c.estado})
+                {c.tipo} - {c.categoria}{c.hora_salida ? ` (${c.hora_salida})` : ''}
               </option>
             ))}
           </select>
@@ -204,10 +208,10 @@ export default function TrackingPage() {
                   <p className="text-gray-600 text-sm">Estado</p>
                   <p
                     className={`text-2xl font-bold ${
-                      carrera.estado === 'en_curso' ? 'text-green-600' : 'text-gray-600'
+                      pasos.length > 0 ? 'text-green-600' : 'text-gray-600'
                     }`}
                   >
-                    {carrera.estado}
+                    {pasos.length > 0 ? 'En vivo' : 'Sin pasos'}
                   </p>
                 </div>
               </div>

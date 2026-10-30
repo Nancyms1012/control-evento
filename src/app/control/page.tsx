@@ -108,20 +108,26 @@ export default function ControlPage() {
 
     setGuardando(true);
     try {
-      // Buscar datos del dorsal en usuarios_evento
-      const { data: usuarioData, error: usuarioError } = await supabaseClient
-        .from('usuarios_evento')
-        .select('*')
-        .eq('evento', eventoSeleccionado.id)
+      // Buscar datos del dorsal en `inscripciones` (ahí están los corredores reales).
+      // Se busca solo por dorsal: en Supabase el `evento` de la inscripción es el tipo
+      // de inscripción del ciclista (XCO, XCC, XCO+XCC, ...) y no coincide 1:1 con el
+      // id del evento del cronograma, así que el match es por número de dorsal.
+      const { data: inscritoData } = await supabaseClient
+        .from('inscripciones')
+        .select('nombre, primer_apellido, segundo_apellido, equipo')
         .eq('dorsal', dorsal.trim())
-        .single();
+        .limit(1)
+        .maybeSingle();
 
       let nombre = 'Por definir';
       let equipo = 'Por definir';
 
-      if (!usuarioError && usuarioData) {
-        nombre = usuarioData.nombre || 'Por definir';
-        equipo = usuarioData.equipo || 'Por definir';
+      if (inscritoData) {
+        nombre = [inscritoData.nombre, inscritoData.primer_apellido, inscritoData.segundo_apellido]
+          .filter(Boolean)
+          .join(' ')
+          .trim() || 'Por definir';
+        equipo = inscritoData.equipo || 'Por definir';
       }
 
       // Contar cuántos pasos tiene este dorsal (= número de vuelta)
