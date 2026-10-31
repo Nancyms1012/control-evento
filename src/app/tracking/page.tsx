@@ -54,15 +54,20 @@ export default function TrackingPage() {
 
   useEffect(() => {
     cargarCarreras();
+    // Realtime de Supabase (si está habilitado en la tabla)
     const channel = supabaseClient
       .channel('pasos_carrera_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pasos_carrera' }, () => {
-        // Al cambiar algo en pasos, recargar los de la tanda actual
         if (tandaRef.current) cargarPasosTanda(tandaRef.current);
       })
       .subscribe();
+    // Respaldo: refrescar cada 5 s aunque Realtime no esté activo (así no hay que refrescar a mano)
+    const intervalo = setInterval(() => {
+      if (tandaRef.current) cargarPasosTanda(tandaRef.current);
+    }, 5000);
     return () => {
       supabaseClient.removeChannel(channel);
+      clearInterval(intervalo);
     };
   }, []);
 
