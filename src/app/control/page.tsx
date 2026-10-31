@@ -102,8 +102,10 @@ export default function ControlPage() {
         .from('pasos_carrera')
         .select('*')
         .in('carrera_id', ids)
+        // Vuelta de mayor a menor; dentro de cada vuelta, por ORDEN DE PASO
+        // (tiempo ascendente = 1º el que cruzó primero). Control por vuelta.
         .order('vuelta', { ascending: false })
-        .order('tiempo_ms', { ascending: false });
+        .order('tiempo_ms', { ascending: true });
       if (error) throw error;
       setPasos(data || []);
     } catch (err) {
@@ -324,7 +326,12 @@ export default function ControlPage() {
 
       if (error) throw error;
 
-      setPasos([data, ...pasos]);
+      // Insertar el nuevo paso manteniendo el orden: vuelta DESC, tiempo ASC (orden de paso)
+      setPasos((prev) =>
+        [data as Paso, ...prev].sort((a, b) =>
+          a.vuelta !== b.vuelta ? b.vuelta - a.vuelta : a.tiempo_ms - b.tiempo_ms
+        )
+      );
       setDorsal('');
       setAviso(avisoReg);
     } catch (err) {
@@ -708,6 +715,7 @@ export default function ControlPage() {
                   <thead className="bg-gray-100">
                     <tr>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Vuelta</th>
+                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Orden</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Dorsal</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Categoría</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Tiempo</th>
@@ -715,9 +723,18 @@ export default function ControlPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {pasos.slice(0, 15).map((paso) => (
-                      <tr key={paso.id} className="border-b border-gray-200 hover:bg-gray-50">
+                    {pasos.map((paso, idx) => {
+                      // Orden de paso dentro de su vuelta (1º, 2º... los que cruzaron antes).
+                      // Como los pasos vienen vuelta DESC + tiempo ASC, cuento los de la
+                      // misma vuelta que van antes en la lista.
+                      const mismaVuelta = pasos.filter((p) => p.vuelta === paso.vuelta);
+                      const ordenEnVuelta = mismaVuelta.findIndex((p) => p.id === paso.id) + 1;
+                      // Marcar el inicio de una vuelta nueva con una línea más gruesa
+                      const esInicioVuelta = idx === 0 || pasos[idx - 1].vuelta !== paso.vuelta;
+                      return (
+                      <tr key={paso.id} className={`hover:bg-gray-50 ${esInicioVuelta ? 'border-t-4 border-t-[#1a4f8b]' : 'border-b border-gray-200'}`}>
                         <td className="px-4 py-2 font-semibold text-[#0d2240]">{paso.vuelta}</td>
+                        <td className="px-4 py-2 text-gray-600">{ordenEnVuelta}º</td>
                         <td className="px-4 py-2 font-bold text-lg">{paso.dorsal}</td>
                         <td className="px-4 py-2 text-xs text-gray-600">{paso.categoria || '—'}</td>
                         <td className="px-4 py-2 font-mono">{formatoTiempo(paso.tiempo_ms)}</td>
@@ -738,7 +755,8 @@ export default function ControlPage() {
                           </button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
