@@ -346,10 +346,21 @@ export default function ControlPage() {
   // Mantiene el tiempo y la vuelta, pero re-busca nombre/equipo/categoría del nuevo
   // dorsal y reasigna el paso a la categoría que corresponda (si está en la tanda).
   const editarDorsalPaso = async (paso: Paso) => {
-    const nuevo = prompt(`Editar dorsal del paso (tiempo ${formatoTiempo(paso.tiempo_ms)}).\nDorsal actual: ${paso.dorsal}\n\nNuevo dorsal:`, paso.dorsal);
+    // 1) Dorsal
+    const nuevo = prompt(`Editar DORSAL (vuelta ${paso.vuelta}).\nDorsal actual: ${paso.dorsal}\n\nNuevo dorsal (dejá igual para no cambiarlo):`, paso.dorsal);
     if (nuevo == null) return;
     const d = nuevo.trim();
-    if (!d || d === paso.dorsal) return;
+    if (!d) return;
+
+    // 2) Tiempo (acumulado) en formato m:ss.cc
+    const tActual = formatoTiempo(paso.tiempo_ms);
+    const nuevoT = prompt(`Editar TIEMPO acumulado del paso.\nFormato m:ss.cc (ej. 9:05.81)\n\nTiempo actual: ${tActual}`, tActual);
+    if (nuevoT == null) return;
+    const tiempoMs = parseTiempo(nuevoT);
+    if (tiempoMs == null) {
+      alert('Formato de tiempo inválido. Usá m:ss.cc (ej. 9:05.81 o 9:05).');
+      return;
+    }
 
     try {
       // Buscar al corredor del nuevo dorsal
@@ -373,26 +384,31 @@ export default function ControlPage() {
       let destino = eventosActivos.find((e) => e.categoria === categoria);
       let avisoTxt = '';
       if (destino) {
-        avisoTxt = `✓ Dorsal corregido a ${d} → ${destino.categoria} (${nombre})`;
+        avisoTxt = `✓ Paso corregido: dorsal ${d} · ${formatoTiempo(tiempoMs)} → ${destino.categoria} (${nombre})`;
       } else {
         // Si no calza, se queda en la misma carrera del paso original
         destino = eventosActivos.find((e) => e.id === paso.carrera_id) || eventosActivos[0];
-        avisoTxt = `⚠️ Dorsal corregido a ${d}, pero ${categoria ? `su categoría "${categoria}" no está en la tanda` : 'no está en inscripciones'}. Quedó en "${destino?.categoria}".`;
+        avisoTxt = `⚠️ Paso corregido a dorsal ${d} · ${formatoTiempo(tiempoMs)}, pero ${categoria ? `su categoría "${categoria}" no está en la tanda` : 'no está en inscripciones'}. Quedó en "${destino?.categoria}".`;
       }
 
       const { data, error } = await supabaseClient
         .from('pasos_carrera')
-        .update({ dorsal: d, nombre, equipo, categoria: destino?.categoria, carrera_id: destino?.id })
+        .update({ dorsal: d, tiempo_ms: tiempoMs, nombre, equipo, categoria: destino?.categoria, carrera_id: destino?.id })
         .eq('id', paso.id)
         .select()
         .single();
       if (error) throw error;
 
-      setPasos((prev) => prev.map((p) => (p.id === paso.id ? (data as Paso) : p)));
+      // Actualizar y reordenar (el tiempo pudo cambiar el orden de paso)
+      setPasos((prev) =>
+        prev
+          .map((p) => (p.id === paso.id ? (data as Paso) : p))
+          .sort((a, b) => (a.vuelta !== b.vuelta ? b.vuelta - a.vuelta : a.tiempo_ms - b.tiempo_ms))
+      );
       setAviso(avisoTxt);
     } catch (err) {
       console.error(err);
-      alert('Error al editar el dorsal: ' + (err instanceof Error ? err.message : 'Desconocido'));
+      alert('Error al editar el paso: ' + (err instanceof Error ? err.message : 'Desconocido'));
     }
   };
 
@@ -446,6 +462,17 @@ export default function ControlPage() {
       corte = acumuladoLider + ochentaPct;
     }
     return { ochentaPct, vueltaLider, corte };
+  };
+
+  // Convertir un texto "m:ss.cc" (o "m:ss") a milisegundos. Devuelve null si es inválido.
+  const parseTiempo = (txt: string): number | null => {
+    const t = txt.trim();
+    const m = t.match(/^(\d+):([0-5]?\d)(?:\.(\d{1,2}))?$/);
+    if (!m) return null;
+    const min = parseInt(m[1], 10);
+    const seg = parseInt(m[2], 10);
+    const cent = m[3] ? parseInt(m[3].padEnd(2, '0'), 10) : 0;
+    return (min * 60 + seg) * 1000 + cent * 10;
   };
 
   // Hora exacta a la que se dio la salida (banderazo), formato CR HH:MM:SS
