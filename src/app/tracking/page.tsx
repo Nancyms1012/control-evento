@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import Link from 'next/link';
 import { supabaseClient } from '@/lib/supabase-client';
 
@@ -26,6 +26,12 @@ interface Paso {
   es_rezagado: boolean;
 }
 
+interface VueltaDetalle {
+  vuelta: number;
+  acumulado: number; // tiempo del crono al cruzar esa vuelta
+  parcial: number; // lo que tardó esa vuelta (acumulado - acumulado anterior)
+}
+
 interface Corredor {
   dorsal: string;
   nombre: string;
@@ -33,6 +39,7 @@ interface Corredor {
   vueltas: number;
   tiempo_ultima: number;
   rezagado: boolean;
+  detalle: VueltaDetalle[];
 }
 
 export default function TrackingPage() {
@@ -40,6 +47,8 @@ export default function TrackingPage() {
   const [tandaClave, setTandaClave] = useState<string>(''); // "fecha|hora"
   const [pasos, setPasos] = useState<Paso[]>([]); // pasos de TODA la tanda seleccionada
   const [cargando, setCargando] = useState(true);
+  // Fila expandida: clave "carreraId|dorsal" para mostrar el desglose por vuelta
+  const [expandida, setExpandida] = useState<string | null>(null);
   const tandaRef = useRef<string>('');
 
   useEffect(() => {
@@ -129,28 +138,37 @@ export default function TrackingPage() {
   const clasificacionDe = (carreraId: string): Corredor[] => {
     const pasosCat = pasos.filter((p) => p.carrera_id === carreraId);
     if (pasosCat.length === 0) return [];
-    const dorsales = new Map<string, Corredor>();
-    pasosCat.forEach((paso) => {
-      if (!dorsales.has(paso.dorsal)) {
-        dorsales.set(paso.dorsal, {
-          dorsal: paso.dorsal,
-          nombre: paso.nombre,
-          equipo: paso.equipo,
-          vueltas: 0,
-          tiempo_ultima: 0,
-          rezagado: false,
-        });
-      }
-      const e = dorsales.get(paso.dorsal)!;
-      // Guardar el tiempo de la ÚLTIMA vuelta de ESTE corredor (su mayor nº de vuelta),
-      // no la vuelta máxima de la categoría (antes los que iban atrás salían en 0:00).
-      if (paso.vuelta >= e.vueltas) {
-        e.vueltas = paso.vuelta;
-        e.tiempo_ultima = paso.tiempo_ms;
-      }
-      if (paso.es_rezagado) e.rezagado = true;
+    // Agrupar los pasos por dorsal
+    const porDorsal = new Map<string, Paso[]>();
+    pasosCat.forEach((p) => {
+      if (!porDorsal.has(p.dorsal)) porDorsal.set(p.dorsal, []);
+      porDorsal.get(p.dorsal)!.push(p);
     });
-    return Array.from(dorsales.values()).sort((a, b) => {
+
+    const corredores: Corredor[] = [];
+    porDorsal.forEach((listaPasos, dorsal) => {
+      // Ordenar las vueltas de este corredor ascendente
+      const ordenados = [...listaPasos].sort((a, b) => a.vuelta - b.vuelta);
+      // Construir el desglose por vuelta: acumulado y parcial (resta con la anterior)
+      let anterior = 0;
+      const detalle: VueltaDetalle[] = ordenados.map((p) => {
+        const d = { vuelta: p.vuelta, acumulado: p.tiempo_ms, parcial: p.tiempo_ms - anterior };
+        anterior = p.tiempo_ms;
+        return d;
+      });
+      const ultimo = ordenados[ordenados.length - 1];
+      corredores.push({
+        dorsal,
+        nombre: ultimo.nombre,
+        equipo: ultimo.equipo,
+        vueltas: ultimo.vuelta,
+        tiempo_ultima: ultimo.tiempo_ms, // acumulado total en la última vuelta
+        rezagado: ordenados.some((p) => p.es_rezagado),
+        detalle,
+      });
+    });
+
+    return corredores.sort((a, b) => {
       if (a.vueltas !== b.vueltas) return b.vueltas - a.vueltas;
       return a.tiempo_ultima - b.tiempo_ultima;
     });
@@ -233,6 +251,7 @@ export default function TrackingPage() {
                       <table className="w-full text-sm">
                         <thead className="bg-gray-100">
                           <tr>
+                            <th className="px-4 py-2 text-left font-semibold text-gray-700 w-8"></th>
                             <th className="px-4 py-2 text-left font-semibold text-gray-700">POS</th>
                             <th className="px-4 py-2 text-left font-semibold text-gray-700">Dorsal</th>
                             <th className="px-4 py-2 text-left font-semibold text-gray-700">Nombre</th>
@@ -242,23 +261,58 @@ export default function TrackingPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {clasif.map((corredor, idx) => (
-                            <tr
-                              key={corredor.dorsal}
-                              className={`border-b border-gray-200 hover:bg-gray-50 ${idx === 0 ? 'bg-yellow-50' : ''}`}
-                            >
-                              <td className="px-4 py-3 font-bold text-lg text-[#0d2240]">
-                                {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
-                              </td>
-                              <td className="px-4 py-3 font-bold text-lg">{corredor.dorsal}</td>
-                              <td className="px-4 py-3">{corredor.nombre}</td>
-                              <td className="px-4 py-3 text-gray-600 text-xs">{corredor.equipo}</td>
-                              <td className="px-4 py-3 font-bold text-green-600">{corredor.vueltas}</td>
-                              <td className="px-4 py-3 font-mono text-sm">
-                                {corredor.vueltas > 0 ? formatoTiempo(corredor.tiempo_ultima) : '-'}
-                              </td>
-                            </tr>
-                          ))}
+                          {clasif.map((corredor, idx) => {
+                            const claveFila = `${c.id}|${corredor.dorsal}`;
+                            const abierta = expandida === claveFila;
+                            return (
+                              <Fragment key={corredor.dorsal}>
+                                <tr
+                                  onClick={() => setExpandida(abierta ? null : claveFila)}
+                                  className={`border-b border-gray-200 hover:bg-blue-50 cursor-pointer ${idx === 0 ? 'bg-yellow-50' : ''}`}
+                                  title="Clic para ver el desglose por vuelta"
+                                >
+                                  <td className="px-4 py-3 text-gray-400 text-center">{abierta ? '▾' : '▸'}</td>
+                                  <td className="px-4 py-3 font-bold text-lg text-[#0d2240]">
+                                    {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
+                                  </td>
+                                  <td className="px-4 py-3 font-bold text-lg">{corredor.dorsal}</td>
+                                  <td className="px-4 py-3">{corredor.nombre}</td>
+                                  <td className="px-4 py-3 text-gray-600 text-xs">{corredor.equipo}</td>
+                                  <td className="px-4 py-3 font-bold text-green-600">{corredor.vueltas}</td>
+                                  <td className="px-4 py-3 font-mono text-sm">
+                                    {corredor.vueltas > 0 ? formatoTiempo(corredor.tiempo_ultima) : '-'}
+                                  </td>
+                                </tr>
+                                {abierta && (
+                                  <tr className="bg-gray-50">
+                                    <td colSpan={7} className="px-6 py-3">
+                                      <p className="text-xs font-semibold text-gray-600 mb-2">
+                                        Desglose por vuelta · dorsal {corredor.dorsal}
+                                      </p>
+                                      <table className="w-full text-xs max-w-md">
+                                        <thead>
+                                          <tr className="text-gray-500">
+                                            <th className="text-left py-1 pr-4">Vuelta</th>
+                                            <th className="text-left py-1 pr-4">Acumulado</th>
+                                            <th className="text-left py-1">Tiempo de la vuelta</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {corredor.detalle.map((v) => (
+                                            <tr key={v.vuelta} className="border-t border-gray-200">
+                                              <td className="py-1 pr-4 font-semibold text-[#0d2240]">{v.vuelta}</td>
+                                              <td className="py-1 pr-4 font-mono">{formatoTiempo(v.acumulado)}</td>
+                                              <td className="py-1 font-mono text-[#1a4f8b]">{formatoTiempo(v.parcial)}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </td>
+                                  </tr>
+                                )}
+                              </Fragment>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
