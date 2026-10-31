@@ -125,7 +125,6 @@ export default function TrackingPage() {
   const clasificacionDe = (carreraId: string): Corredor[] => {
     const pasosCat = pasos.filter((p) => p.carrera_id === carreraId);
     if (pasosCat.length === 0) return [];
-    const maxV = Math.max(...pasosCat.map((p) => p.vuelta));
     const dorsales = new Map<string, Corredor>();
     pasosCat.forEach((paso) => {
       if (!dorsales.has(paso.dorsal)) {
@@ -139,8 +138,12 @@ export default function TrackingPage() {
         });
       }
       const e = dorsales.get(paso.dorsal)!;
-      e.vueltas = Math.max(e.vueltas, paso.vuelta);
-      if (paso.vuelta === maxV) e.tiempo_ultima = paso.tiempo_ms;
+      // Guardar el tiempo de la ÚLTIMA vuelta de ESTE corredor (su mayor nº de vuelta),
+      // no la vuelta máxima de la categoría (antes los que iban atrás salían en 0:00).
+      if (paso.vuelta >= e.vueltas) {
+        e.vueltas = paso.vuelta;
+        e.tiempo_ultima = paso.tiempo_ms;
+      }
       if (paso.es_rezagado) e.rezagado = true;
     });
     return Array.from(dorsales.values()).sort((a, b) => {
