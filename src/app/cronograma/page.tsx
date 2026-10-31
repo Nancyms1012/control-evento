@@ -221,6 +221,20 @@ export default function CronogramaPage() {
   };
 
   // Parsea una línea CSV respetando comillas. Acepta separador ; o ,
+  // Lee el archivo respetando su codificación (UTF-8 o Windows-1252 de Excel).
+  // Si se lee UTF-8 un archivo Latin-1, los acentos/ñ salen como "�".
+  const leerArchivoTexto = async (file: File): Promise<string> => {
+    const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    try {
+      const txt = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      return txt.charCodeAt(0) === 0xfeff ? txt.slice(1) : txt;
+    } catch {
+      const txt = new TextDecoder('windows-1252').decode(bytes);
+      return txt.charCodeAt(0) === 0xfeff ? txt.slice(1) : txt;
+    }
+  };
+
   const parsearLineaCSV = (linea: string, sep: string): string[] => {
     const campos: string[] = [];
     let actual = '';
@@ -267,8 +281,7 @@ export default function CronogramaPage() {
     setSubiendoCSV(true);
     setResultadoCSV(null);
     try {
-      let texto = await file.text();
-      if (texto.charCodeAt(0) === 0xfeff) texto = texto.slice(1);
+      const texto = await leerArchivoTexto(file);
 
       const lineas = texto.split(/\r?\n/).filter((l) => l.trim() !== '');
       if (lineas.length === 0) {
