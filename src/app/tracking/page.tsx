@@ -30,6 +30,7 @@ interface VueltaDetalle {
   vuelta: number;
   acumulado: number; // tiempo del crono al cruzar esa vuelta
   parcial: number; // lo que tardó esa vuelta (acumulado - acumulado anterior)
+  posicion: number; // posición en que cruzó esa vuelta (dentro de su categoría)
 }
 
 interface Corredor {
@@ -148,6 +149,20 @@ export default function TrackingPage() {
   const clasificacionDe = (carreraId: string): Corredor[] => {
     const pasosCat = pasos.filter((p) => p.carrera_id === carreraId);
     if (pasosCat.length === 0) return [];
+
+    // Ranking por vuelta: para cada nº de vuelta, los tiempos ordenados (ascendente).
+    // Sirve para saber la POSICIÓN en que cada corredor cruzó cada vuelta.
+    const tiemposPorVuelta = new Map<number, number[]>();
+    pasosCat.forEach((p) => {
+      if (!tiemposPorVuelta.has(p.vuelta)) tiemposPorVuelta.set(p.vuelta, []);
+      tiemposPorVuelta.get(p.vuelta)!.push(p.tiempo_ms);
+    });
+    tiemposPorVuelta.forEach((arr) => arr.sort((a, b) => a - b));
+    const posicionEnVuelta = (vuelta: number, tiempo: number) => {
+      const arr = tiemposPorVuelta.get(vuelta) || [];
+      return arr.indexOf(tiempo) + 1; // 1º el que cruzó primero esa vuelta
+    };
+
     // Agrupar los pasos por dorsal
     const porDorsal = new Map<string, Paso[]>();
     pasosCat.forEach((p) => {
@@ -159,10 +174,15 @@ export default function TrackingPage() {
     porDorsal.forEach((listaPasos, dorsal) => {
       // Ordenar las vueltas de este corredor ascendente
       const ordenados = [...listaPasos].sort((a, b) => a.vuelta - b.vuelta);
-      // Construir el desglose por vuelta: acumulado y parcial (resta con la anterior)
+      // Construir el desglose por vuelta: acumulado, parcial (resta) y posición
       let anterior = 0;
       const detalle: VueltaDetalle[] = ordenados.map((p) => {
-        const d = { vuelta: p.vuelta, acumulado: p.tiempo_ms, parcial: p.tiempo_ms - anterior };
+        const d = {
+          vuelta: p.vuelta,
+          acumulado: p.tiempo_ms,
+          parcial: p.tiempo_ms - anterior,
+          posicion: posicionEnVuelta(p.vuelta, p.tiempo_ms),
+        };
         anterior = p.tiempo_ms;
         return d;
       });
@@ -324,6 +344,7 @@ export default function TrackingPage() {
                                         <thead>
                                           <tr className="text-gray-500">
                                             <th className="text-left py-1 pr-4">Vuelta</th>
+                                            <th className="text-left py-1 pr-4">Pos</th>
                                             <th className="text-left py-1 pr-4">Acumulado</th>
                                             <th className="text-left py-1">Tiempo de la vuelta</th>
                                           </tr>
@@ -332,6 +353,7 @@ export default function TrackingPage() {
                                           {corredor.detalle.map((v) => (
                                             <tr key={v.vuelta} className="border-t border-gray-200">
                                               <td className="py-1 pr-4 font-semibold text-[#0d2240]">{v.vuelta}</td>
+                                              <td className="py-1 pr-4 font-bold text-green-700">{v.posicion}º</td>
                                               <td className="py-1 pr-4 font-mono">{formatoTiempo(v.acumulado)}</td>
                                               <td className="py-1 font-mono text-[#1a4f8b]">{formatoTiempo(v.parcial)}</td>
                                             </tr>
