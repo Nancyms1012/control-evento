@@ -123,39 +123,67 @@ export default function ControlPage() {
     setCategoriasSeleccionadas(cats);
   };
 
-  // Guardar/leer el estado del crono en localStorage (sobrevive recargas y caídas)
-  const guardarCrono = (clave: string | null, salida: number | null, pausa: number | null) => {
+  // ¿Esta tanda ya tiene salida dada (guardada)?
+  const tandaYaSalio = (clave: string | null) => {
+    if (!clave) return false;
+    return leerSalidas()[clave] != null;
+  };
+
+  // Estado de salidas por tanda guardado en localStorage (cada hora recuerda su propia
+  // salida). Clave = "fecha|hora" -> { salidaAt, pausadoEn }. Sobrevive recargas/caídas.
+  const LS_KEY = 'controlEvento_salidas';
+  const leerSalidas = (): Record<string, { salidaAt: number; pausadoEn: number | null }> => {
     try {
-      if (clave && salida != null) {
-        localStorage.setItem('controlEvento_crono', JSON.stringify({ clave, salidaAt: salida, pausadoEn: pausa }));
-      } else {
-        localStorage.removeItem('controlEvento_crono');
-      }
+      return JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+    } catch {
+      return {};
+    }
+  };
+  // Guardar/actualizar la salida de UNA tanda (sin borrar las demás)
+  const guardarSalidaTanda = (clave: string, salida: number, pausa: number | null) => {
+    try {
+      const todas = leerSalidas();
+      todas[clave] = { salidaAt: salida, pausadoEn: pausa };
+      localStorage.setItem(LS_KEY, JSON.stringify(todas));
     } catch {}
   };
 
   // Comenzar el control de la tanda con las categorías marcadas.
-  // Da la salida AL INSTANTE guardando la hora real de salida (Date.now()).
+  // "Dar salida": si la tanda NUNCA salió, da la salida ahora (crono nuevo en 0).
+  // Si la tanda YA salió antes, la RETOMA con su hora y pasos originales (no reinicia).
   const comenzarControl = async () => {
     if (!tandaSeleccionada || categoriasSeleccionadas.length === 0) {
       alert('Seleccioná una tanda y al menos una categoría');
       return;
     }
-    const ahora = Date.now();
-    setControlActivo(true);
-    setSalidaAt(ahora);
-    setPausadoEn(null);
-    setCronometroMs(0);
-    guardarCrono(tandaSeleccionada, ahora, null);
-    // Cargar pasos en segundo plano (no bloquea el arranque del crono)
-    cargarPasos(idsActivos);
+    const guardadas = leerSalidas();
+    const existente = guardadas[tandaSeleccionada];
+
+    if (existente) {
+      // Retomar una salida ya dada: mostrar su crono y sus pasos
+      setControlActivo(true);
+      setSalidaAt(existente.salidaAt);
+      setPausadoEn(existente.pausadoEn ?? null);
+      setCronometroMs(0);
+      cargarPasos(idsActivos);
+    } else {
+      // Salida nueva: arranca el crono al instante
+      const ahora = Date.now();
+      setControlActivo(true);
+      setSalidaAt(ahora);
+      setPausadoEn(null);
+      setCronometroMs(0);
+      guardarSalidaTanda(tandaSeleccionada, ahora, null);
+      setPasos([]); // pantalla limpia para la nueva salida
+      cargarPasos(idsActivos);
+    }
   };
 
-  // Cerrar la salida: detiene el crono, LIMPIA la pantalla (los pasos de esta tanda
-  // dejan de mostrarse) y vuelve a la selección para la próxima tanda.
-  // Los tiempos YA registrados quedan guardados en la base (no se borran).
+  // Cerrar la salida: detiene el crono, LIMPIA la pantalla y vuelve a la selección.
+  // La salida queda GUARDADA (se puede volver a abrir esa hora y ver sus pasos).
+  // Los tiempos registrados quedan en la base (Tracking los conserva todos).
   const salirControl = () => {
-    if (!confirm('¿Cerrar esta salida?\n\nEl cronómetro se detiene y la pantalla se limpia para la próxima tanda.\nLos tiempos registrados quedan guardados.')) return;
+    if (!confirm('¿Cerrar esta salida?\n\nEl cronómetro se detiene y la pantalla se limpia.\nLos tiempos quedan guardados (podés volver a abrir esta hora o verlos en Tracking).')) return;
     setControlActivo(false);
     setSalidaAt(null);
     setPausadoEn(null);
@@ -163,14 +191,14 @@ export default function ControlPage() {
     setPasos([]);
     setTandaSeleccionada(null);
     setCategoriasSeleccionadas([]);
-    guardarCrono(null, null, null);
+    // NO se borra el localStorage: la salida de esa tanda se conserva para reabrirla.
   };
 
   // Pausar: congela el tiempo transcurrido actual.
   const pausarCrono = () => {
     const ms = calcularMs();
     setPausadoEn(ms);
-    guardarCrono(tandaSeleccionada, salidaAt, ms);
+    if (tandaSeleccionada && salidaAt != null) guardarSalidaTanda(tandaSeleccionada, salidaAt, ms);
   };
 
   // Reanudar: recalcula la salida para que el tiempo siga desde donde estaba.
@@ -179,7 +207,7 @@ export default function ControlPage() {
     const nuevaSalida = Date.now() - pausadoEn;
     setSalidaAt(nuevaSalida);
     setPausadoEn(null);
-    guardarCrono(tandaSeleccionada, nuevaSalida, null);
+    if (tandaSeleccionada) guardarSalidaTanda(tandaSeleccionada, nuevaSalida, null);
   };
 
   // Refrescar la pantalla cada 100ms recalculando contra el reloj real.
@@ -195,25 +223,9 @@ export default function ControlPage() {
   }, [salidaAt, pausadoEn]);
 
   // Al cargar la página, recuperar una tanda en curso (si la hay) tras recargar/caída.
-  useEffect(() => {
-    if (eventos.length === 0) return;
-    try {
-      const raw = localStorage.getItem('controlEvento_crono');
-      if (!raw) return;
-      const g = JSON.parse(raw) as { clave: string; salidaAt: number; pausadoEn: number | null };
-      if (!g.clave || !tandas.get(g.clave)) return;
-      if (controlActivo) return; // ya hay una activa
-      const cats = (tandas.get(g.clave)?.eventos || []).map((e) => e.categoria);
-      setTandaSeleccionada(g.clave);
-      setCategoriasSeleccionadas(cats);
-      setSalidaAt(g.salidaAt);
-      setPausadoEn(g.pausadoEn ?? null);
-      setControlActivo(true);
-      const ids = (tandas.get(g.clave)?.eventos || []).map((e) => e.id);
-      cargarPasos(ids);
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eventos]);
+  // Nota: al cargar la página se entra por la pantalla de selección de tanda.
+  // Como cada salida queda guardada por hora, al elegir una tanda que ya salió y
+  // tocar "Dar salida" se retoma su crono y pasos (no se reinicia).
 
   // Registrar paso: busca la categoría del dorsal y lo asigna al evento correcto
   const registrarPaso = async () => {
@@ -376,6 +388,9 @@ export default function ControlPage() {
                       >
                         <span className="font-bold text-[#0d2240]">{t.hora}</span>
                         <span className="text-gray-500 text-sm ml-2">{t.fecha}</span>
+                        {tandaYaSalio(clave) && (
+                          <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ ya salió</span>
+                        )}
                         <span className="block text-xs text-gray-500 mt-0.5">
                           {t.eventos.length} categoría{t.eventos.length !== 1 ? 's' : ''} · {t.eventos[0].tipo}
                         </span>
@@ -416,12 +431,16 @@ export default function ControlPage() {
                       <button
                         onClick={comenzarControl}
                         disabled={categoriasSeleccionadas.length === 0}
-                        className="mt-3 w-full bg-green-600 text-white font-bold py-3 rounded-lg hover:bg-green-700 disabled:opacity-50 text-lg"
+                        className={`mt-3 w-full text-white font-bold py-3 rounded-lg disabled:opacity-50 text-lg ${
+                          tandaYaSalio(tandaSeleccionada) ? 'bg-[#1a4f8b] hover:bg-[#0d2240]' : 'bg-green-600 hover:bg-green-700'
+                        }`}
                       >
-                        ▶️ Dar salida (inicia el crono)
+                        {tandaYaSalio(tandaSeleccionada) ? '📂 Abrir salida (ya iniciada)' : '▶️ Dar salida (inicia el crono)'}
                       </button>
                       <p className="text-xs text-gray-500 mt-1 text-center">
-                        El cronómetro arranca al instante con este botón.
+                        {tandaYaSalio(tandaSeleccionada)
+                          ? 'Esta salida ya fue dada: se retoma su crono y sus pasos (no se reinicia).'
+                          : 'El cronómetro arranca al instante con este botón.'}
                       </p>
                     </>
                   )}
