@@ -51,6 +51,7 @@ export default function TrackingPage() {
   // Fila expandida: clave "carreraId|dorsal" para mostrar el desglose por vuelta
   const [expandida, setExpandida] = useState<string | null>(null);
   const tandaRef = useRef<string>('');
+  const carrerasRef = useRef<Carrera[]>([]); // referencia siempre actualizada (para el polling)
 
   useEffect(() => {
     cargarCarreras();
@@ -81,6 +82,7 @@ export default function TrackingPage() {
       if (error) throw error;
       const lista = (data || []) as Carrera[];
       setCarreras(lista);
+      carrerasRef.current = lista; // mantener la ref actualizada para el polling
       // Seleccionar la primera tanda disponible
       if (lista.length > 0) {
         const clave = `${lista[0].fecha}|${lista[0].hora_salida}`;
@@ -119,7 +121,8 @@ export default function TrackingPage() {
   // Cargar los pasos de TODAS las categorías de la tanda.
   // `fuente` permite pasar la lista recién traída cuando el estado aún no se actualizó.
   const cargarPasosTanda = async (clave: string, fuente?: Carrera[]) => {
-    const base = fuente || carreras;
+    // Usar la ref (siempre actualizada) para no depender del estado capturado por el closure del setInterval
+    const base = fuente || carrerasRef.current;
     const [fecha, hora] = clave.split('|');
     const cs = base.filter((c) => c.fecha === fecha && c.hora_salida === hora);
     const ids = cs.map((c) => c.id);
