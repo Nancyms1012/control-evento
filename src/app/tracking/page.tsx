@@ -71,7 +71,8 @@ export default function TrackingPage() {
         const clave = `${lista[0].fecha}|${lista[0].hora_salida}`;
         setTandaClave(clave);
         tandaRef.current = clave;
-        cargarPasosTanda(clave);
+        // Pasar la lista recién traída (el estado 'carreras' aún no se actualizó)
+        cargarPasosTanda(clave, lista);
       }
     } catch (err) {
       console.error(err);
@@ -99,9 +100,12 @@ export default function TrackingPage() {
     cargarPasosTanda(clave);
   };
 
-  // Cargar los pasos de TODAS las categorías de la tanda
-  const cargarPasosTanda = async (clave: string) => {
-    const cs = tandas.get(clave)?.carreras || [];
+  // Cargar los pasos de TODAS las categorías de la tanda.
+  // `fuente` permite pasar la lista recién traída cuando el estado aún no se actualizó.
+  const cargarPasosTanda = async (clave: string, fuente?: Carrera[]) => {
+    const base = fuente || carreras;
+    const [fecha, hora] = clave.split('|');
+    const cs = base.filter((c) => c.fecha === fecha && c.hora_salida === hora);
     const ids = cs.map((c) => c.id);
     if (ids.length === 0) {
       setPasos([]);
