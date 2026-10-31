@@ -431,10 +431,16 @@ export default function ControlPage() {
 
   const formatoTiempo = (ms: number) => {
     const totalSeg = Math.floor(ms / 1000);
-    const min = Math.floor(totalSeg / 60);
+    const horas = Math.floor(totalSeg / 3600);
+    const min = Math.floor((totalSeg % 3600) / 60);
     const seg = totalSeg % 60;
     const centesimas = Math.floor((ms % 1000) / 10);
-    return `${min}:${seg.toString().padStart(2, '0')}.${centesimas.toString().padStart(2, '0')}`;
+    const mm = min.toString().padStart(2, '0');
+    const ss = seg.toString().padStart(2, '0');
+    const cc = centesimas.toString().padStart(2, '0');
+    // A partir de 1 hora muestra h:mm:ss.cc (ej. 1:09:47.xx); si no, m:ss.cc
+    if (horas > 0) return `${horas}:${mm}:${ss}.${cc}`;
+    return `${min}:${ss}.${cc}`;
   };
 
   // Cálculo del 80% EN VIVO por categoría (indicador de solo lectura).
@@ -467,12 +473,24 @@ export default function ControlPage() {
   // Convertir un texto "m:ss.cc" (o "m:ss") a milisegundos. Devuelve null si es inválido.
   const parseTiempo = (txt: string): number | null => {
     const t = txt.trim();
-    const m = t.match(/^(\d+):([0-5]?\d)(?:\.(\d{1,2}))?$/);
-    if (!m) return null;
-    const min = parseInt(m[1], 10);
-    const seg = parseInt(m[2], 10);
-    const cent = m[3] ? parseInt(m[3].padEnd(2, '0'), 10) : 0;
-    return (min * 60 + seg) * 1000 + cent * 10;
+    // h:mm:ss.cc  (con horas)
+    let m = t.match(/^(\d+):([0-5]?\d):([0-5]?\d)(?:\.(\d{1,2}))?$/);
+    if (m) {
+      const h = parseInt(m[1], 10);
+      const min = parseInt(m[2], 10);
+      const seg = parseInt(m[3], 10);
+      const cent = m[4] ? parseInt(m[4].padEnd(2, '0'), 10) : 0;
+      return ((h * 60 + min) * 60 + seg) * 1000 + cent * 10;
+    }
+    // m:ss.cc  (sin horas)
+    m = t.match(/^(\d+):([0-5]?\d)(?:\.(\d{1,2}))?$/);
+    if (m) {
+      const min = parseInt(m[1], 10);
+      const seg = parseInt(m[2], 10);
+      const cent = m[3] ? parseInt(m[3].padEnd(2, '0'), 10) : 0;
+      return (min * 60 + seg) * 1000 + cent * 10;
+    }
+    return null;
   };
 
   // Hora exacta a la que se dio la salida (banderazo), formato CR HH:MM:SS
