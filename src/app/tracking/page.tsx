@@ -45,6 +45,7 @@ interface Corredor {
 export default function TrackingPage() {
   const [carreras, setCarreras] = useState<Carrera[]>([]);
   const [tandaClave, setTandaClave] = useState<string>(''); // "fecha|hora"
+  const [filtroCategoria, setFiltroCategoria] = useState<string>(''); // '' = todas
   const [pasos, setPasos] = useState<Paso[]>([]); // pasos de TODA la tanda seleccionada
   const [cargando, setCargando] = useState(true);
   // Fila expandida: clave "carreraId|dorsal" para mostrar el desglose por vuelta
@@ -105,6 +106,7 @@ export default function TrackingPage() {
 
   const seleccionarTanda = (clave: string) => {
     setTandaClave(clave);
+    setFiltroCategoria(''); // al cambiar de salida, mostrar todas las categorías
     tandaRef.current = clave;
     cargarPasosTanda(clave);
   };
@@ -198,21 +200,40 @@ export default function TrackingPage() {
           </Link>
         </div>
 
-        {/* Selector de tanda (hora de salida) */}
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-1">Salida (hora)</label>
-          <select
-            value={tandaClave}
-            onChange={(e) => seleccionarTanda(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1a4f8b]"
-          >
-            <option value="">Seleccionar salida...</option>
-            {listaTandas.map(([clave, t]) => (
-              <option key={clave} value={clave}>
-                {t.hora} · {t.fecha} ({t.carreras.length} categoría{t.carreras.length !== 1 ? 's' : ''})
-              </option>
-            ))}
-          </select>
+        {/* Selectores: salida (hora) + filtro por categoría */}
+        <div className="mb-6 flex flex-wrap gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Salida (hora)</label>
+            <select
+              value={tandaClave}
+              onChange={(e) => seleccionarTanda(e.target.value)}
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1a4f8b]"
+            >
+              <option value="">Seleccionar salida...</option>
+              {listaTandas.map(([clave, t]) => (
+                <option key={clave} value={clave}>
+                  {t.hora} · {t.fecha} ({t.carreras.length} categoría{t.carreras.length !== 1 ? 's' : ''})
+                </option>
+              ))}
+            </select>
+          </div>
+          {carrerasTanda.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
+              <select
+                value={filtroCategoria}
+                onChange={(e) => setFiltroCategoria(e.target.value)}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1a4f8b]"
+              >
+                <option value="">Todas las categorías</option>
+                {carrerasTanda.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.categoria}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         {cargando ? (
@@ -223,8 +244,10 @@ export default function TrackingPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            {/* Una tabla de clasificación POR CADA categoría de la tanda */}
-            {carrerasTanda.map((c) => {
+            {/* Una tabla de clasificación por categoría (filtrada si se eligió una) */}
+            {carrerasTanda
+              .filter((c) => !filtroCategoria || c.id === filtroCategoria)
+              .map((c) => {
               const clasif = clasificacionDe(c.id);
               const maxV = clasif.length > 0 ? Math.max(...clasif.map((x) => x.vueltas)) : 0;
               return (
