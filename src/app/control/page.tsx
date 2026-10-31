@@ -151,8 +151,11 @@ export default function ControlPage() {
     cargarPasos(idsActivos);
   };
 
+  // Cerrar la salida: detiene el crono, LIMPIA la pantalla (los pasos de esta tanda
+  // dejan de mostrarse) y vuelve a la selección para la próxima tanda.
+  // Los tiempos YA registrados quedan guardados en la base (no se borran).
   const salirControl = () => {
-    if (!confirm('¿Salir del control de esta tanda? El cronómetro se detiene.')) return;
+    if (!confirm('¿Cerrar esta salida?\n\nEl cronómetro se detiene y la pantalla se limpia para la próxima tanda.\nLos tiempos registrados quedan guardados.')) return;
     setControlActivo(false);
     setSalidaAt(null);
     setPausadoEn(null);
@@ -452,8 +455,8 @@ export default function ControlPage() {
                     {corriendo ? 'EN VIVO' : 'Parado'}
                   </p>
                 </div>
-                <button onClick={salirControl} className="text-red-600 hover:text-red-800 font-medium ml-4">
-                  ✕ Cambiar
+                <button onClick={salirControl} className="bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 font-medium ml-4 text-sm whitespace-nowrap">
+                  🏁 Cerrar salida
                 </button>
               </div>
               <div className="flex flex-wrap gap-1">
@@ -559,6 +562,17 @@ export default function ControlPage() {
                 </table>
               </div>
             </div>
+
+            {/* Cerrar salida: limpia la pantalla para la próxima tanda */}
+            <button
+              onClick={salirControl}
+              className="w-full bg-red-600 text-white font-bold py-3 rounded-lg hover:bg-red-700"
+            >
+              🏁 Cerrar salida y pasar a la siguiente
+            </button>
+            <p className="text-xs text-gray-500 text-center -mt-3">
+              Detiene el crono y limpia la pantalla. Los tiempos registrados quedan guardados.
+            </p>
           </div>
         )}
       </div>
