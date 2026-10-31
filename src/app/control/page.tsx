@@ -32,6 +32,7 @@ export default function ControlPage() {
   const [tandaSeleccionada, setTandaSeleccionada] = useState<string | null>(null); // clave "fecha|hora"
   const [categoriasSeleccionadas, setCategoriasSeleccionadas] = useState<string[]>([]);
   const [controlActivo, setControlActivo] = useState(false); // ya se eligió la tanda y se está cronometrando
+  const [salidaCerrada, setSalidaCerrada] = useState(false); // la tanda abierta en pantalla está cerrada (solo lectura)
   const [pasos, setPasos] = useState<Paso[]>([]);
   // CRONÓMETRO POR HORA REAL (no por acumulación): así no se atrasa aunque se
   // bloquee la pantalla o la pestaña pase a segundo plano, y se recupera al recargar.
@@ -168,8 +169,9 @@ export default function ControlPage() {
     const existente = guardadas[tandaSeleccionada];
 
     if (existente) {
-      // Retomar una salida ya dada: mostrar su crono y sus pasos (y marcarla NO cerrada)
+      // Retomar/REABRIR una salida ya dada: mostrar su crono y sus pasos (y marcarla NO cerrada)
       setControlActivo(true);
+      setSalidaCerrada(false);
       setSalidaAt(existente.salidaAt);
       setPausadoEn(existente.pausadoEn ?? null);
       setCronometroMs(0);
@@ -179,6 +181,7 @@ export default function ControlPage() {
       // Salida nueva: arranca el crono al instante
       const ahora = Date.now();
       setControlActivo(true);
+      setSalidaCerrada(false);
       setSalidaAt(ahora);
       setPausadoEn(null);
       setCronometroMs(0);
@@ -191,13 +194,24 @@ export default function ControlPage() {
   // Cerrar la salida: detiene el crono, LIMPIA la pantalla y vuelve a la selección.
   // La salida queda GUARDADA (se puede volver a abrir esa hora y ver sus pasos).
   // Los tiempos registrados quedan en la base (Tracking los conserva todos).
+  // Cerrar la salida: detiene el crono y deja la tanda en pantalla en modo SOLO LECTURA
+  // (estado "Cerrada"). No vuelve a la selección; para eso está "Volver a salidas".
   const salirControl = () => {
-    if (!confirm('¿Cerrar esta salida?\n\nEl cronómetro se detiene y la pantalla se limpia.\nLos tiempos quedan guardados (podés volver a abrir esta hora o verlos en Tracking).')) return;
-    // Marcar la tanda como CERRADA (conserva su salida para poder reabrirla/verla)
+    if (!confirm('¿Cerrar esta salida?\n\nEl cronómetro se detiene y la tanda queda cerrada (solo lectura).\nLos tiempos quedan guardados. Podés reabrirla después desde la lista de salidas.')) return;
+    // Congelar el crono en el tiempo actual y marcar la tanda como CERRADA
+    const ms = calcularMs();
+    setPausadoEn(ms);
+    setCronometroMs(ms);
+    setSalidaCerrada(true);
     if (tandaSeleccionada && salidaAt != null) {
-      guardarSalidaTanda(tandaSeleccionada, salidaAt, pausadoEn, true);
+      guardarSalidaTanda(tandaSeleccionada, salidaAt, ms, true);
     }
+  };
+
+  // Volver a la lista de salidas (sin cerrar; solo sale de la pantalla de control)
+  const volverASalidas = () => {
     setControlActivo(false);
+    setSalidaCerrada(false);
     setSalidaAt(null);
     setPausadoEn(null);
     setCronometroMs(0);
@@ -477,12 +491,18 @@ export default function ControlPage() {
                           tandaYaSalio(tandaSeleccionada) ? 'bg-[#1a4f8b] hover:bg-[#0d2240]' : 'bg-green-600 hover:bg-green-700'
                         }`}
                       >
-                        {tandaYaSalio(tandaSeleccionada) ? '📂 Abrir salida (ya iniciada)' : '▶️ Dar salida (inicia el crono)'}
+                        {estadoTanda(tandaSeleccionada!) === 'cerrada'
+                          ? '🔓 Reabrir salida'
+                          : estadoTanda(tandaSeleccionada!) === 'en_curso'
+                            ? '📂 Abrir salida (ya iniciada)'
+                            : '▶️ Dar salida (inicia el crono)'}
                       </button>
                       <p className="text-xs text-gray-500 mt-1 text-center">
-                        {tandaYaSalio(tandaSeleccionada)
-                          ? 'Esta salida ya fue dada: se retoma su crono y sus pasos (no se reinicia).'
-                          : 'El cronómetro arranca al instante con este botón.'}
+                        {estadoTanda(tandaSeleccionada!) === 'cerrada'
+                          ? 'Esta salida está cerrada: reabrirla vuelve a activar el crono y muestra sus pasos.'
+                          : estadoTanda(tandaSeleccionada!) === 'en_curso'
+                            ? 'Esta salida ya fue dada: se retoma su crono y sus pasos (no se reinicia).'
+                            : 'El cronómetro arranca al instante con este botón.'}
                       </p>
                     </>
                   )}
@@ -510,13 +530,19 @@ export default function ControlPage() {
                 </div>
                 <div className="text-right">
                   <p className="text-gray-600 text-sm">Estado</p>
-                  <p className={`text-xl font-bold ${corriendo ? 'text-green-600' : 'text-yellow-600'}`}>
-                    {corriendo ? 'EN VIVO' : 'Parado'}
+                  <p className={`text-xl font-bold ${salidaCerrada ? 'text-gray-500' : corriendo ? 'text-green-600' : 'text-yellow-600'}`}>
+                    {salidaCerrada ? '🏁 Cerrada' : corriendo ? 'EN VIVO' : 'Parado'}
                   </p>
                 </div>
-                <button onClick={salirControl} className="bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 font-medium ml-4 text-sm whitespace-nowrap">
-                  🏁 Cerrar salida
-                </button>
+                {salidaCerrada ? (
+                  <button onClick={volverASalidas} className="bg-gray-600 text-white px-3 py-1.5 rounded-lg hover:bg-gray-700 font-medium ml-4 text-sm whitespace-nowrap">
+                    ← Volver a salidas
+                  </button>
+                ) : (
+                  <button onClick={salirControl} className="bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 font-medium ml-4 text-sm whitespace-nowrap">
+                    🏁 Cerrar salida
+                  </button>
+                )}
               </div>
               <div className="flex flex-wrap gap-1 mb-4">
                 {eventosActivos.map((e) => (
@@ -564,14 +590,19 @@ export default function ControlPage() {
                 <div className="text-6xl font-bold text-[#0d2240] font-mono mb-4">
                   {formatoTiempo(cronometroMs)}
                 </div>
-                <button
-                  onClick={corriendo ? pausarCrono : reanudarCrono}
-                  className={`px-8 py-3 rounded-lg font-bold text-white text-lg ${
-                    corriendo ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
-                  }`}
-                >
-                  {corriendo ? '⏸️ Pausar' : '▶️ Reanudar'}
-                </button>
+                {!salidaCerrada && (
+                  <button
+                    onClick={corriendo ? pausarCrono : reanudarCrono}
+                    className={`px-8 py-3 rounded-lg font-bold text-white text-lg ${
+                      corriendo ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
+                    }`}
+                  >
+                    {corriendo ? '⏸️ Pausar' : '▶️ Reanudar'}
+                  </button>
+                )}
+                {salidaCerrada && (
+                  <p className="text-gray-500 font-semibold">Salida cerrada · tiempo final</p>
+                )}
               </div>
 
               <div className="space-y-4">
@@ -652,16 +683,27 @@ export default function ControlPage() {
               </div>
             </div>
 
-            {/* Cerrar salida: limpia la pantalla para la próxima tanda */}
-            <button
-              onClick={salirControl}
-              className="w-full bg-red-600 text-white font-bold py-3 rounded-lg hover:bg-red-700"
-            >
-              🏁 Cerrar salida y pasar a la siguiente
-            </button>
-            <p className="text-xs text-gray-500 text-center -mt-3">
-              Detiene el crono y limpia la pantalla. Los tiempos registrados quedan guardados.
-            </p>
+            {/* Cerrar salida (solo si no está ya cerrada) */}
+            {!salidaCerrada ? (
+              <>
+                <button
+                  onClick={salirControl}
+                  className="w-full bg-red-600 text-white font-bold py-3 rounded-lg hover:bg-red-700"
+                >
+                  🏁 Cerrar salida
+                </button>
+                <p className="text-xs text-gray-500 text-center -mt-3">
+                  Detiene el crono y marca la salida como cerrada. Los tiempos quedan guardados.
+                </p>
+              </>
+            ) : (
+              <button
+                onClick={volverASalidas}
+                className="w-full bg-gray-600 text-white font-bold py-3 rounded-lg hover:bg-gray-700"
+              >
+                ← Volver a salidas
+              </button>
+            )}
           </div>
         )}
       </div>
