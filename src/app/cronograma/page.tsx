@@ -124,6 +124,26 @@ export default function CronogramaPage() {
     }
   };
 
+  // Eliminar TODOS los eventos del cronograma (con doble confirmación)
+  const eliminarTodos = async () => {
+    if (eventos.length === 0) return;
+    if (!confirm(`¿Eliminar TODOS los eventos del cronograma (${eventos.length})?\n\nEsto NO se puede deshacer.`)) return;
+    if (!confirm('Confirmá otra vez: se borrarán todos los eventos programados.')) return;
+    try {
+      // Borrar todas las filas del cronograma
+      const { error } = await supabaseClient
+        .from('cronograma')
+        .delete()
+        .not('id', 'is', null);
+      if (error) throw error;
+      setEventos([]);
+      alert('Se eliminaron todos los eventos del cronograma.');
+    } catch (err) {
+      console.error(err);
+      alert('Error al eliminar los eventos');
+    }
+  };
+
   const eliminarEvento = async (id: string) => {
     if (!confirm('¿Eliminar este evento?')) return;
 
@@ -576,10 +596,18 @@ export default function CronogramaPage() {
           {/* Listado */}
           <div className="lg:col-span-2">
             <div className="bg-white rounded-xl shadow-md overflow-hidden">
-              <div className="p-6 border-b border-gray-200">
+              <div className="p-6 border-b border-gray-200 flex items-center justify-between gap-2">
                 <h2 className="text-lg font-bold text-[#0d2240]">
                   Eventos programados ({eventos.length})
                 </h2>
+                {eventos.length > 0 && (
+                  <button
+                    onClick={eliminarTodos}
+                    className="text-red-600 hover:text-white hover:bg-red-600 border border-red-600 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+                  >
+                    🗑️ Eliminar todo
+                  </button>
+                )}
               </div>
 
               {cargando ? (
