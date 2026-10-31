@@ -233,7 +233,6 @@ export default function ControlPage() {
       let nombre = 'Por definir';
       let equipo = 'Por definir';
       let categoria = '';
-      let eventoInscripcion = ''; // "XCO" | "XCC" | "XCO+XCC" | "XCO+XCC+XCE"
 
       if (inscritoData) {
         nombre =
@@ -243,17 +242,16 @@ export default function ControlPage() {
             .trim() || 'Por definir';
         equipo = inscritoData.equipo || 'Por definir';
         categoria = inscritoData.categoria || '';
-        eventoInscripcion = (inscritoData.evento || '').toUpperCase();
       }
 
-      // Match por DORSAL + EVENTO: el paso va al evento activo cuya categoría coincida
-      // y cuyo tipo (XCC/XCO) esté incluido en el evento de inscripción del corredor
-      // (ej. un inscrito en "XCO+XCC" participa tanto en tandas XCC como XCO).
+      // Match por CATEGORÍA: el paso va al evento activo cuya categoría coincida con la
+      // del corredor. NO se valida el tipo (XCC/XCO) contra el evento de inscripción:
+      // en pista manda la realidad (si el corredor está corriendo esta tanda, su tiempo
+      // se registra en su categoría), sin importar en qué modalidad se inscribió.
+      // Si la tanda tiene la misma categoría en XCC y XCO (raro), se prioriza el tipo de la tanda.
       let eventoDestino: Evento | undefined;
       if (categoria) {
-        eventoDestino = eventosActivos.find(
-          (e) => e.categoria === categoria && eventoInscripcion.includes(e.tipo)
-        );
+        eventoDestino = eventosActivos.find((e) => e.categoria === categoria);
       }
 
       // REGLA CLAVE: el tiempo SIEMPRE se registra, aunque el dorsal no tenga datos.
