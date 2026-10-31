@@ -335,6 +335,60 @@ export default function ControlPage() {
     }
   };
 
+  // Editar el dorsal de un paso ya registrado (por si se tecleó mal).
+  // Mantiene el tiempo y la vuelta, pero re-busca nombre/equipo/categoría del nuevo
+  // dorsal y reasigna el paso a la categoría que corresponda (si está en la tanda).
+  const editarDorsalPaso = async (paso: Paso) => {
+    const nuevo = prompt(`Editar dorsal del paso (tiempo ${formatoTiempo(paso.tiempo_ms)}).\nDorsal actual: ${paso.dorsal}\n\nNuevo dorsal:`, paso.dorsal);
+    if (nuevo == null) return;
+    const d = nuevo.trim();
+    if (!d || d === paso.dorsal) return;
+
+    try {
+      // Buscar al corredor del nuevo dorsal
+      const { data: ins } = await supabaseClient
+        .from('inscripciones')
+        .select('nombre, primer_apellido, segundo_apellido, equipo, categoria')
+        .eq('dorsal', d)
+        .limit(1)
+        .maybeSingle();
+
+      let nombre = 'Por definir';
+      let equipo = 'Por definir';
+      let categoria = '';
+      if (ins) {
+        nombre = [ins.nombre, ins.primer_apellido, ins.segundo_apellido].filter(Boolean).join(' ').trim() || 'Por definir';
+        equipo = ins.equipo || 'Por definir';
+        categoria = ins.categoria || '';
+      }
+
+      // Decidir carrera_id según la categoría del nuevo dorsal (si calza en la tanda)
+      let destino = eventosActivos.find((e) => e.categoria === categoria);
+      let avisoTxt = '';
+      if (destino) {
+        avisoTxt = `✓ Dorsal corregido a ${d} → ${destino.categoria} (${nombre})`;
+      } else {
+        // Si no calza, se queda en la misma carrera del paso original
+        destino = eventosActivos.find((e) => e.id === paso.carrera_id) || eventosActivos[0];
+        avisoTxt = `⚠️ Dorsal corregido a ${d}, pero ${categoria ? `su categoría "${categoria}" no está en la tanda` : 'no está en inscripciones'}. Quedó en "${destino?.categoria}".`;
+      }
+
+      const { data, error } = await supabaseClient
+        .from('pasos_carrera')
+        .update({ dorsal: d, nombre, equipo, categoria: destino?.categoria, carrera_id: destino?.id })
+        .eq('id', paso.id)
+        .select()
+        .single();
+      if (error) throw error;
+
+      setPasos((prev) => prev.map((p) => (p.id === paso.id ? (data as Paso) : p)));
+      setAviso(avisoTxt);
+    } catch (err) {
+      console.error(err);
+      alert('Error al editar el dorsal: ' + (err instanceof Error ? err.message : 'Desconocido'));
+    }
+  };
+
   // Borrar un paso (por si el juez tecleó mal un dorsal)
   const borrarPaso = async (paso: Paso) => {
     if (!confirm(`¿Borrar el paso del dorsal ${paso.dorsal} (${formatoTiempo(paso.tiempo_ms)})?`)) return;
@@ -667,7 +721,14 @@ export default function ControlPage() {
                         <td className="px-4 py-2 font-bold text-lg">{paso.dorsal}</td>
                         <td className="px-4 py-2 text-xs text-gray-600">{paso.categoria || '—'}</td>
                         <td className="px-4 py-2 font-mono">{formatoTiempo(paso.tiempo_ms)}</td>
-                        <td className="px-4 py-2 text-center">
+                        <td className="px-4 py-2 text-center whitespace-nowrap">
+                          <button
+                            onClick={() => editarDorsalPaso(paso)}
+                            className="text-[#1a4f8b] hover:text-[#0d2240] text-sm font-medium mr-3"
+                            title="Editar el dorsal de este paso"
+                          >
+                            ✏️ Editar
+                          </button>
                           <button
                             onClick={() => borrarPaso(paso)}
                             className="text-red-600 hover:text-red-800 text-sm font-medium"
