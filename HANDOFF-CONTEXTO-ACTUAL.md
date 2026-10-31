@@ -162,6 +162,14 @@ Una vez que Nancy responda, implementar: select de categorías + carga CSV (con 
   - ⚠️ DECISIÓN 30 oct: NO se implementó antes de la carrera (se tocaría el Control a minutos de usarlo
     en vivo = riesgo). Para la VII Fecha se registran los pasos y los jueces aplican el 80% a criterio.
     Implementar con calma DESPUÉS del evento y probar bien.
+  - **EL 80% ES APP APARTE (lo maneja otra persona) + TAMBIÉN se muestra EN VIVO en Control** (indicador
+    de solo lectura, por categoría). Mecánica confirmada con Nancy (ejemplo real):
+    - 80% de la categoría = **80% del tiempo de la 1ª vuelta del líder** (FIJO toda la carrera).
+      Ej: #100 Máster A 1ª vuelta 2:02.77 → 80% = 1:37 (fijo).
+    - A partir de la 2ª vuelta: **límite de corte = acumulado del líder en su última vuelta + 80% fijo**.
+      Ej: líder 2ª vuelta acumulado 4:11 → corte = 4:11 + 1:37 = 5:48. Los que crucen DESPUÉS se sacan.
+    - "Líder" = el PRIMER corredor de esa categoría en cruzar esa vuelta (puede cambiar de dorsal).
+    - Aplica por categoría (Máster A, B, C... cada una con sus tiempos).
 - Pasos editables + audit trail
 - Export CSV/PDF de resultados
 - Integración ANCM (envío automático de resultados)

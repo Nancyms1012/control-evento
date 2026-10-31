@@ -129,10 +129,18 @@ export default function ControlPage() {
     return leerSalidas()[clave] != null;
   };
 
+  // Estado de una tanda: 'nueva' | 'en_curso' | 'cerrada'
+  const estadoTanda = (clave: string): 'nueva' | 'en_curso' | 'cerrada' => {
+    const s = leerSalidas()[clave];
+    if (!s) return 'nueva';
+    return s.cerrada ? 'cerrada' : 'en_curso';
+  };
+
   // Estado de salidas por tanda guardado en localStorage (cada hora recuerda su propia
   // salida). Clave = "fecha|hora" -> { salidaAt, pausadoEn }. Sobrevive recargas/caídas.
   const LS_KEY = 'controlEvento_salidas';
-  const leerSalidas = (): Record<string, { salidaAt: number; pausadoEn: number | null }> => {
+  type SalidaLS = { salidaAt: number; pausadoEn: number | null; cerrada?: boolean };
+  const leerSalidas = (): Record<string, SalidaLS> => {
     try {
       return JSON.parse(localStorage.getItem(LS_KEY) || '{}');
     } catch {
@@ -140,10 +148,10 @@ export default function ControlPage() {
     }
   };
   // Guardar/actualizar la salida de UNA tanda (sin borrar las demás)
-  const guardarSalidaTanda = (clave: string, salida: number, pausa: number | null) => {
+  const guardarSalidaTanda = (clave: string, salida: number, pausa: number | null, cerrada = false) => {
     try {
       const todas = leerSalidas();
-      todas[clave] = { salidaAt: salida, pausadoEn: pausa };
+      todas[clave] = { salidaAt: salida, pausadoEn: pausa, cerrada };
       localStorage.setItem(LS_KEY, JSON.stringify(todas));
     } catch {}
   };
@@ -160,11 +168,12 @@ export default function ControlPage() {
     const existente = guardadas[tandaSeleccionada];
 
     if (existente) {
-      // Retomar una salida ya dada: mostrar su crono y sus pasos
+      // Retomar una salida ya dada: mostrar su crono y sus pasos (y marcarla NO cerrada)
       setControlActivo(true);
       setSalidaAt(existente.salidaAt);
       setPausadoEn(existente.pausadoEn ?? null);
       setCronometroMs(0);
+      guardarSalidaTanda(tandaSeleccionada, existente.salidaAt, existente.pausadoEn ?? null, false);
       cargarPasos(idsActivos);
     } else {
       // Salida nueva: arranca el crono al instante
@@ -184,6 +193,10 @@ export default function ControlPage() {
   // Los tiempos registrados quedan en la base (Tracking los conserva todos).
   const salirControl = () => {
     if (!confirm('¿Cerrar esta salida?\n\nEl cronómetro se detiene y la pantalla se limpia.\nLos tiempos quedan guardados (podés volver a abrir esta hora o verlos en Tracking).')) return;
+    // Marcar la tanda como CERRADA (conserva su salida para poder reabrirla/verla)
+    if (tandaSeleccionada && salidaAt != null) {
+      guardarSalidaTanda(tandaSeleccionada, salidaAt, pausadoEn, true);
+    }
     setControlActivo(false);
     setSalidaAt(null);
     setPausadoEn(null);
@@ -191,7 +204,6 @@ export default function ControlPage() {
     setPasos([]);
     setTandaSeleccionada(null);
     setCategoriasSeleccionadas([]);
-    // NO se borra el localStorage: la salida de esa tanda se conserva para reabrirla.
   };
 
   // Pausar: congela el tiempo transcurrido actual.
@@ -334,6 +346,33 @@ export default function ControlPage() {
     return `${min}:${seg.toString().padStart(2, '0')}.${centesimas.toString().padStart(2, '0')}`;
   };
 
+  // Cálculo del 80% EN VIVO por categoría (indicador de solo lectura).
+  // - ochentaPct = 80% del tiempo de la 1ª vuelta del LÍDER (fijo toda la carrera).
+  // - corte = acumulado del líder en su última vuelta completada + ochentaPct (desde la 2ª vuelta).
+  // "líder" = el primer corredor de la categoría en cruzar cada vuelta (menor tiempo en esa vuelta).
+  const calculo80 = (carreraId: string): { ochentaPct: number | null; vueltaLider: number; corte: number | null } => {
+    const ps = pasos.filter((p) => p.carrera_id === carreraId);
+    if (ps.length === 0) return { ochentaPct: null, vueltaLider: 0, corte: null };
+
+    // Primer corredor en cruzar la vuelta 1 = menor tiempo_ms en vuelta 1
+    const vuelta1 = ps.filter((p) => p.vuelta === 1);
+    if (vuelta1.length === 0) return { ochentaPct: null, vueltaLider: 0, corte: null };
+    const tiempo1Lider = Math.min(...vuelta1.map((p) => p.tiempo_ms));
+    const ochentaPct = Math.round(tiempo1Lider * 0.8);
+
+    // Vuelta más alta ya cruzada por algún corredor (la del líder de la carrera)
+    const vueltaLider = Math.max(...ps.map((p) => p.vuelta));
+
+    // Desde la 2ª vuelta: acumulado del primero en cruzar la vuelta más alta + 80%
+    let corte: number | null = null;
+    if (vueltaLider >= 2) {
+      const enVueltaMax = ps.filter((p) => p.vuelta === vueltaLider);
+      const acumuladoLider = Math.min(...enVueltaMax.map((p) => p.tiempo_ms));
+      corte = acumuladoLider + ochentaPct;
+    }
+    return { ochentaPct, vueltaLider, corte };
+  };
+
   // Hora exacta a la que se dio la salida (banderazo), formato CR HH:MM:SS
   const horaSalidaStr = () => {
     if (salidaAt == null) return '—';
@@ -388,8 +427,11 @@ export default function ControlPage() {
                       >
                         <span className="font-bold text-[#0d2240]">{t.hora}</span>
                         <span className="text-gray-500 text-sm ml-2">{t.fecha}</span>
-                        {tandaYaSalio(clave) && (
-                          <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">✓ ya salió</span>
+                        {estadoTanda(clave) === 'en_curso' && (
+                          <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">▶️ en curso</span>
+                        )}
+                        {estadoTanda(clave) === 'cerrada' && (
+                          <span className="ml-2 text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">🏁 cerrada</span>
                         )}
                         <span className="block text-xs text-gray-500 mt-0.5">
                           {t.eventos.length} categoría{t.eventos.length !== 1 ? 's' : ''} · {t.eventos[0].tipo}
@@ -476,12 +518,42 @@ export default function ControlPage() {
                   🏁 Cerrar salida
                 </button>
               </div>
-              <div className="flex flex-wrap gap-1">
+              <div className="flex flex-wrap gap-1 mb-4">
                 {eventosActivos.map((e) => (
                   <span key={e.id} className="bg-[#1a4f8b] text-white text-xs px-2 py-1 rounded-full">
                     {e.categoria} ({e.tipo})
                   </span>
                 ))}
+              </div>
+
+              {/* Panel 80% en vivo por categoría */}
+              <div className="border-t border-gray-100 pt-3">
+                <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Regla del 80% (por categoría)</p>
+                <div className="space-y-1.5">
+                  {eventosActivos.map((e) => {
+                    const r = calculo80(e.id);
+                    return (
+                      <div key={e.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm bg-gray-50 rounded-lg px-3 py-2">
+                        <span className="font-semibold text-[#0d2240] min-w-[140px]">{e.categoria}</span>
+                        {r.ochentaPct == null ? (
+                          <span className="text-gray-400">Esperando 1ª vuelta…</span>
+                        ) : (
+                          <>
+                            <span className="text-gray-600">80%: <span className="font-mono font-bold text-[#1a4f8b]">{formatoTiempo(r.ochentaPct)}</span></span>
+                            {r.corte == null ? (
+                              <span className="text-gray-400 text-xs">(corte desde la 2ª vuelta)</span>
+                            ) : (
+                              <span className="text-red-700 font-semibold">
+                                ✂️ Sacar si pasa después de <span className="font-mono">{formatoTiempo(r.corte)}</span>
+                                <span className="text-gray-400 font-normal text-xs ml-1">(vta {r.vueltaLider})</span>
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
