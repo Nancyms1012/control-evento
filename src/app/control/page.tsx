@@ -321,6 +321,18 @@ export default function ControlPage() {
     return `${min}:${seg.toString().padStart(2, '0')}.${centesimas.toString().padStart(2, '0')}`;
   };
 
+  // Hora exacta a la que se dio la salida (banderazo), formato CR HH:MM:SS
+  const horaSalidaStr = () => {
+    if (salidaAt == null) return '—';
+    return new Date(salidaAt).toLocaleTimeString('es-CR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+      timeZone: 'America/Costa_Rica',
+    });
+  };
+
   // Lista de tandas ordenada
   const listaTandas = Array.from(tandas.entries()).sort((a, b) => a[0].localeCompare(b[0]));
 
@@ -430,6 +442,10 @@ export default function ControlPage() {
                     {tandas.get(tandaSeleccionada!)?.hora} · {tandas.get(tandaSeleccionada!)?.fecha}
                   </p>
                 </div>
+                <div className="text-center">
+                  <p className="text-gray-600 text-sm">Salida (banderazo)</p>
+                  <p className="text-xl font-bold text-[#1a4f8b] font-mono">🚩 {horaSalidaStr()}</p>
+                </div>
                 <div className="text-right">
                   <p className="text-gray-600 text-sm">Estado</p>
                   <p className={`text-xl font-bold ${corriendo ? 'text-green-600' : 'text-yellow-600'}`}>
@@ -452,6 +468,7 @@ export default function ControlPage() {
             {/* Cronómetro y entrada */}
             <div className="bg-white rounded-xl shadow-md p-8">
               <div className="text-center mb-8">
+                <p className="text-sm text-gray-500 mb-1">🚩 Salida: <span className="font-mono font-bold text-[#1a4f8b]">{horaSalidaStr()}</span></p>
                 <div className="text-6xl font-bold text-[#0d2240] font-mono mb-4">
                   {formatoTiempo(cronometroMs)}
                 </div>
