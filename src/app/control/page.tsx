@@ -49,6 +49,7 @@ export default function ControlPage() {
   const [dorsal, setDorsal] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [tabPasos, setTabPasos] = useState<'registro' | 'porVuelta'>('registro'); // vista de la tabla de pasos
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const corriendo = salidaAt != null && pausadoEn == null;
@@ -107,9 +108,9 @@ export default function ControlPage() {
         .from('pasos_carrera')
         .select('*')
         .in('carrera_id', ids)
-        // ORDEN DE DIGITACIÓN: el PRIMERO registrado arriba (orden de pasada real).
-        // No se reordena por tiempo (eso iría contra el orden de captura con desfases).
-        .order('timestamp', { ascending: true });
+        // ORDEN DE DIGITACIÓN: el ÚLTIMO registrado arriba (lo más reciente primero),
+        // para no tener que bajar hasta el final con muchos corredores.
+        .order('timestamp', { ascending: false });
       if (error) throw error;
       setPasos(data || []);
     } catch (err) {
@@ -352,8 +353,8 @@ export default function ControlPage() {
 
       if (error) throw error;
 
-      // Orden de digitación: el primero arriba, así el nuevo paso va AL FINAL.
-      setPasos((prev) => [...prev, data as Paso]);
+      // Orden de digitación: el último arriba, así el nuevo paso va PRIMERO.
+      setPasos((prev) => [data as Paso, ...prev]);
       setDorsal('');
       setAviso(avisoReg);
     } catch (err) {
@@ -789,10 +790,24 @@ export default function ControlPage() {
               </div>
             </div>
 
-            {/* Últimos pasos */}
+            {/* Últimos pasos — con dos vistas (tabs) */}
             <div className="bg-white rounded-xl shadow-md overflow-hidden">
-              <div className="p-6 border-b border-gray-200">
-                <h2 className="text-lg font-bold text-[#0d2240]">Últimos pasos ({pasos.length})</h2>
+              <div className="p-4 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2">
+                <h2 className="text-lg font-bold text-[#0d2240]">Pasos ({pasos.length})</h2>
+                <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+                  <button
+                    onClick={() => setTabPasos('registro')}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium ${tabPasos === 'registro' ? 'bg-white shadow text-[#0d2240]' : 'text-gray-500'}`}
+                  >
+                    Registro
+                  </button>
+                  <button
+                    onClick={() => setTabPasos('porVuelta')}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium ${tabPasos === 'porVuelta' ? 'bg-white shadow text-[#0d2240]' : 'text-gray-500'}`}
+                  >
+                    Por vuelta
+                  </button>
+                </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -807,11 +822,18 @@ export default function ControlPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {pasos.map((paso, idx) => {
-                      // Orden de DIGITACIÓN: el más reciente arriba. El "#" es el nº de registro
-                      // (1 = el último digitado). No se reordena por tiempo.
+                    {(() => {
+                      // "registro" = orden de llegada (último arriba, como viene en `pasos`).
+                      // "porVuelta" = agrupado por vuelta (más alta arriba), manteniendo
+                      // dentro de cada vuelta el orden de llegada.
+                      const lista =
+                        tabPasos === 'registro'
+                          ? pasos
+                          : [...pasos].sort((a, b) => b.vuelta - a.vuelta); // sort estable
+                      return lista.map((paso, idx) => {
+                      const nuevaVuelta = tabPasos === 'porVuelta' && (idx === 0 || lista[idx - 1].vuelta !== paso.vuelta);
                       return (
-                      <tr key={paso.id} className="hover:bg-gray-50 border-b border-gray-200">
+                      <tr key={paso.id} className={`hover:bg-gray-50 ${nuevaVuelta ? 'border-t-4 border-t-[#1a4f8b]' : 'border-b border-gray-200'}`}>
                         <td className="px-4 py-2 text-gray-400">{idx + 1}</td>
                         <td className="px-4 py-2 font-semibold text-[#0d2240]">{paso.vuelta}</td>
                         <td className="px-4 py-2 font-bold text-lg">{paso.dorsal}</td>
@@ -835,7 +857,8 @@ export default function ControlPage() {
                         </td>
                       </tr>
                       );
-                    })}
+                    });
+                    })()}
                   </tbody>
                 </table>
               </div>
