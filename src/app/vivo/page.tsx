@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { supabaseClient } from '@/lib/supabase-client';
 
 interface Paso {
@@ -16,12 +16,20 @@ interface Paso {
   es_rezagado: boolean;
 }
 
+interface VueltaDetalle {
+  vuelta: number;
+  acumulado: number;
+  parcial: number;
+  posicion: number;
+}
+
 interface Corredor {
   dorsal: string;
   nombre: string;
   equipo: string;
   vueltas: number;
   tiempo_ultima: number;
+  detalle: VueltaDetalle[];
 }
 
 interface EventoTanda {
@@ -35,6 +43,7 @@ export default function VivoPage() {
   const [eventosTanda, setEventosTanda] = useState<EventoTanda[]>([]); // categorías de esa tanda
   const [pasos, setPasos] = useState<Paso[]>([]); // pasos de TODA la tanda
   const [cargando, setCargando] = useState(true);
+  const [expandida, setExpandida] = useState<string | null>(null); // "carreraId|dorsal"
 
   // Detecta la TANDA EN CURSO por la hora de salida del evento al que pertenece el
   // paso más reciente, y muestra TODAS las categorías de esa tanda (ej. las dos Élite).
@@ -98,10 +107,19 @@ export default function VivoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Clasificación de UNA categoría (por carrera_id)
+  // Clasificación de UNA categoría (por carrera_id), con desglose por vuelta
   const clasificacionDe = (carreraId: string): Corredor[] => {
     const ps = pasos.filter((p) => p.carrera_id === carreraId);
     if (ps.length === 0) return [];
+    // Ranking por vuelta (para la posición de pasada)
+    const tiemposPorVuelta = new Map<number, number[]>();
+    ps.forEach((p) => {
+      if (!tiemposPorVuelta.has(p.vuelta)) tiemposPorVuelta.set(p.vuelta, []);
+      tiemposPorVuelta.get(p.vuelta)!.push(p.tiempo_ms);
+    });
+    tiemposPorVuelta.forEach((arr) => arr.sort((a, b) => a - b));
+    const posEnVuelta = (v: number, t: number) => (tiemposPorVuelta.get(v) || []).indexOf(t) + 1;
+
     const porDorsal = new Map<string, Paso[]>();
     ps.forEach((p) => {
       if (!porDorsal.has(p.dorsal)) porDorsal.set(p.dorsal, []);
@@ -110,6 +128,12 @@ export default function VivoPage() {
     const out: Corredor[] = [];
     porDorsal.forEach((lista, dorsal) => {
       const ordenados = [...lista].sort((a, b) => a.vuelta - b.vuelta);
+      let anterior = 0;
+      const detalle: VueltaDetalle[] = ordenados.map((p) => {
+        const d = { vuelta: p.vuelta, acumulado: p.tiempo_ms, parcial: p.tiempo_ms - anterior, posicion: posEnVuelta(p.vuelta, p.tiempo_ms) };
+        anterior = p.tiempo_ms;
+        return d;
+      });
       const ultimo = ordenados[ordenados.length - 1];
       out.push({
         dorsal,
@@ -117,6 +141,7 @@ export default function VivoPage() {
         equipo: ultimo.equipo,
         vueltas: ultimo.vuelta,
         tiempo_ultima: ultimo.tiempo_ms,
+        detalle,
       });
     });
     return out.sort((a, b) => {
@@ -186,18 +211,54 @@ export default function VivoPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {clasif.map((c, idx) => (
-                          <tr key={c.dorsal} className={`border-b border-gray-200 ${idx === 0 ? 'bg-yellow-50' : ''}`}>
-                            <td className="px-4 py-2 font-bold text-lg text-[#0d2240]">
-                              {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
-                            </td>
-                            <td className="px-4 py-2 font-bold text-lg">{c.dorsal}</td>
-                            <td className="px-4 py-2">{c.nombre}</td>
-                            <td className="px-4 py-2 text-gray-600 text-sm hidden sm:table-cell">{c.equipo}</td>
-                            <td className="px-4 py-2 font-bold text-green-600">{c.vueltas}</td>
-                            <td className="px-4 py-2 font-mono">{c.tiempo_ultima > 0 ? formatoTiempo(c.tiempo_ultima) : '-'}</td>
-                          </tr>
-                        ))}
+                        {clasif.map((c, idx) => {
+                          const claveFila = `${ev.id}|${c.dorsal}`;
+                          const abierta = expandida === claveFila;
+                          return (
+                          <Fragment key={c.dorsal}>
+                            <tr
+                              onClick={() => setExpandida(abierta ? null : claveFila)}
+                              className={`border-b border-gray-200 cursor-pointer hover:bg-blue-50 ${idx === 0 ? 'bg-yellow-50' : ''}`}
+                            >
+                              <td className="px-4 py-2 font-bold text-lg text-[#0d2240]">
+                                {abierta ? '▾ ' : ''}{idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
+                              </td>
+                              <td className="px-4 py-2 font-bold text-lg">{c.dorsal}</td>
+                              <td className="px-4 py-2">{c.nombre}</td>
+                              <td className="px-4 py-2 text-gray-600 text-sm hidden sm:table-cell">{c.equipo}</td>
+                              <td className="px-4 py-2 font-bold text-green-600">{c.vueltas}</td>
+                              <td className="px-4 py-2 font-mono">{c.tiempo_ultima > 0 ? formatoTiempo(c.tiempo_ultima) : '-'}</td>
+                            </tr>
+                            {abierta && (
+                              <tr className="bg-gray-50">
+                                <td colSpan={6} className="px-6 py-3">
+                                  <p className="text-xs font-semibold text-gray-600 mb-2">Desglose por vuelta · dorsal {c.dorsal}</p>
+                                  <table className="w-full max-w-md text-xs">
+                                    <thead>
+                                      <tr className="text-gray-500">
+                                        <th className="text-left py-1 pr-4">Vuelta</th>
+                                        <th className="text-left py-1 pr-4">Pos</th>
+                                        <th className="text-left py-1 pr-4">Acumulado</th>
+                                        <th className="text-left py-1">Tiempo de la vuelta</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {c.detalle.map((v) => (
+                                        <tr key={v.vuelta} className="border-t border-gray-200">
+                                          <td className="py-1 pr-4 font-semibold text-[#0d2240]">{v.vuelta}</td>
+                                          <td className="py-1 pr-4 font-bold text-green-700">{v.posicion}º</td>
+                                          <td className="py-1 pr-4 font-mono">{formatoTiempo(v.acumulado)}</td>
+                                          <td className="py-1 font-mono text-[#1a4f8b]">{formatoTiempo(v.parcial)}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                          );
+                        })}
                       </tbody>
                     </table>
                   )}
