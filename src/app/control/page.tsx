@@ -24,6 +24,7 @@ interface Paso {
   equipo?: string;
   categoria?: string;
   es_rezagado: boolean;
+  timestamp?: string;
 }
 
 export default function ControlPage() {
@@ -106,10 +107,9 @@ export default function ControlPage() {
         .from('pasos_carrera')
         .select('*')
         .in('carrera_id', ids)
-        // Vuelta de mayor a menor; dentro de cada vuelta, por ORDEN DE PASO
-        // (tiempo ascendente = 1º el que cruzó primero). Control por vuelta.
-        .order('vuelta', { ascending: false })
-        .order('tiempo_ms', { ascending: true });
+        // ORDEN DE DIGITACIÓN: lo último registrado arriba (orden de pasada real).
+        // No se reordena por tiempo (eso iría contra el orden de captura con desfases).
+        .order('timestamp', { ascending: false });
       if (error) throw error;
       setPasos(data || []);
     } catch (err) {
@@ -352,12 +352,8 @@ export default function ControlPage() {
 
       if (error) throw error;
 
-      // Insertar el nuevo paso manteniendo el orden: vuelta DESC, tiempo ASC (orden de paso)
-      setPasos((prev) =>
-        [data as Paso, ...prev].sort((a, b) =>
-          a.vuelta !== b.vuelta ? b.vuelta - a.vuelta : a.tiempo_ms - b.tiempo_ms
-        )
-      );
+      // Orden de digitación: el nuevo paso va ARRIBA (lo más reciente primero).
+      setPasos((prev) => [data as Paso, ...prev]);
       setDorsal('');
       setAviso(avisoReg);
     } catch (err) {
@@ -425,12 +421,8 @@ export default function ControlPage() {
         .single();
       if (error) throw error;
 
-      // Actualizar y reordenar (el tiempo pudo cambiar el orden de paso)
-      setPasos((prev) =>
-        prev
-          .map((p) => (p.id === paso.id ? (data as Paso) : p))
-          .sort((a, b) => (a.vuelta !== b.vuelta ? b.vuelta - a.vuelta : a.tiempo_ms - b.tiempo_ms))
-      );
+      // Actualizar en su lugar (sin reordenar: se respeta el orden de digitación)
+      setPasos((prev) => prev.map((p) => (p.id === paso.id ? (data as Paso) : p)));
       setAviso(avisoTxt);
     } catch (err) {
       console.error(err);
@@ -806,8 +798,8 @@ export default function ControlPage() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-100">
                     <tr>
+                      <th className="px-4 py-2 text-left font-semibold text-gray-700">#</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Vuelta</th>
-                      <th className="px-4 py-2 text-left font-semibold text-gray-700">Orden</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Dorsal</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Categoría</th>
                       <th className="px-4 py-2 text-left font-semibold text-gray-700">Tiempo</th>
@@ -816,17 +808,12 @@ export default function ControlPage() {
                   </thead>
                   <tbody>
                     {pasos.map((paso, idx) => {
-                      // Orden de paso dentro de su vuelta (1º, 2º... los que cruzaron antes).
-                      // Como los pasos vienen vuelta DESC + tiempo ASC, cuento los de la
-                      // misma vuelta que van antes en la lista.
-                      const mismaVuelta = pasos.filter((p) => p.vuelta === paso.vuelta);
-                      const ordenEnVuelta = mismaVuelta.findIndex((p) => p.id === paso.id) + 1;
-                      // Marcar el inicio de una vuelta nueva con una línea más gruesa
-                      const esInicioVuelta = idx === 0 || pasos[idx - 1].vuelta !== paso.vuelta;
+                      // Orden de DIGITACIÓN: el más reciente arriba. El "#" es el nº de registro
+                      // (1 = el último digitado). No se reordena por tiempo.
                       return (
-                      <tr key={paso.id} className={`hover:bg-gray-50 ${esInicioVuelta ? 'border-t-4 border-t-[#1a4f8b]' : 'border-b border-gray-200'}`}>
+                      <tr key={paso.id} className="hover:bg-gray-50 border-b border-gray-200">
+                        <td className="px-4 py-2 text-gray-400">{idx + 1}</td>
                         <td className="px-4 py-2 font-semibold text-[#0d2240]">{paso.vuelta}</td>
-                        <td className="px-4 py-2 text-gray-600">{ordenEnVuelta}º</td>
                         <td className="px-4 py-2 font-bold text-lg">{paso.dorsal}</td>
                         <td className="px-4 py-2 text-xs text-gray-600">{paso.categoria || '—'}</td>
                         <td className="px-4 py-2 font-mono">{formatoTiempo(paso.tiempo_ms)}</td>
