@@ -145,43 +145,48 @@ export default function TrackingPage() {
     }
   };
 
-  // Clasificación de una categoría (carrera) concreta
+  // Clasificación de una categoría (carrera) concreta.
+  // IMPORTANTE: la vuelta se RECALCULA por orden de tiempo (acumulado), ignorando el
+  // campo 'vuelta' guardado (que puede quedar mal si se digita fuera de orden). Así el
+  // nº de vuelta y los parciales siempre son correctos, sin tiempos negativos.
   const clasificacionDe = (carreraId: string): Corredor[] => {
     const pasosCat = pasos.filter((p) => p.carrera_id === carreraId);
     if (pasosCat.length === 0) return [];
 
-    // Ranking por vuelta: para cada nº de vuelta, los tiempos ordenados (ascendente).
-    // Sirve para saber la POSICIÓN en que cada corredor cruzó cada vuelta.
-    const tiemposPorVuelta = new Map<number, number[]>();
-    pasosCat.forEach((p) => {
-      if (!tiemposPorVuelta.has(p.vuelta)) tiemposPorVuelta.set(p.vuelta, []);
-      tiemposPorVuelta.get(p.vuelta)!.push(p.tiempo_ms);
-    });
-    tiemposPorVuelta.forEach((arr) => arr.sort((a, b) => a - b));
-    const posicionEnVuelta = (vuelta: number, tiempo: number) => {
-      const arr = tiemposPorVuelta.get(vuelta) || [];
-      return arr.indexOf(tiempo) + 1; // 1º el que cruzó primero esa vuelta
-    };
-
-    // Agrupar los pasos por dorsal
+    // Agrupar por dorsal y ordenar sus pasos por TIEMPO
     const porDorsal = new Map<string, Paso[]>();
     pasosCat.forEach((p) => {
       if (!porDorsal.has(p.dorsal)) porDorsal.set(p.dorsal, []);
       porDorsal.get(p.dorsal)!.push(p);
     });
 
+    // Para la posición por vuelta: juntar los acumulados de cada vuelta RECALCULADA.
+    // vueltaCalc(dorsal, i) = i+1 (orden por tiempo). Guardamos el acumulado del i-ésimo paso.
+    const acumuladosPorVuelta = new Map<number, number[]>();
+    porDorsal.forEach((lista) => {
+      const ord = [...lista].sort((a, b) => a.tiempo_ms - b.tiempo_ms);
+      ord.forEach((p, i) => {
+        const v = i + 1;
+        if (!acumuladosPorVuelta.has(v)) acumuladosPorVuelta.set(v, []);
+        acumuladosPorVuelta.get(v)!.push(p.tiempo_ms);
+      });
+    });
+    acumuladosPorVuelta.forEach((arr) => arr.sort((a, b) => a - b));
+    const posicionEnVuelta = (vueltaCalc: number, tiempo: number) =>
+      (acumuladosPorVuelta.get(vueltaCalc) || []).indexOf(tiempo) + 1;
+
     const corredores: Corredor[] = [];
     porDorsal.forEach((listaPasos, dorsal) => {
-      // Ordenar las vueltas de este corredor ascendente
-      const ordenados = [...listaPasos].sort((a, b) => a.vuelta - b.vuelta);
-      // Construir el desglose por vuelta: acumulado, parcial (resta) y posición
+      // Ordenar por TIEMPO (no por el campo vuelta) y renumerar 1,2,3...
+      const ordenados = [...listaPasos].sort((a, b) => a.tiempo_ms - b.tiempo_ms);
       let anterior = 0;
-      const detalle: VueltaDetalle[] = ordenados.map((p) => {
+      const detalle: VueltaDetalle[] = ordenados.map((p, i) => {
+        const vueltaCalc = i + 1;
         const d = {
-          vuelta: p.vuelta,
+          vuelta: vueltaCalc,
           acumulado: p.tiempo_ms,
           parcial: p.tiempo_ms - anterior,
-          posicion: posicionEnVuelta(p.vuelta, p.tiempo_ms),
+          posicion: posicionEnVuelta(vueltaCalc, p.tiempo_ms),
         };
         anterior = p.tiempo_ms;
         return d;
@@ -191,8 +196,8 @@ export default function TrackingPage() {
         dorsal,
         nombre: ultimo.nombre,
         equipo: ultimo.equipo,
-        vueltas: ultimo.vuelta,
-        tiempo_ultima: ultimo.tiempo_ms, // acumulado total en la última vuelta
+        vueltas: ordenados.length, // nº de vueltas = cantidad de pasos
+        tiempo_ultima: ultimo.tiempo_ms, // acumulado mayor
         rezagado: ordenados.some((p) => p.es_rezagado),
         detalle,
       });

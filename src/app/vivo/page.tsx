@@ -107,30 +107,38 @@ export default function VivoPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Clasificación de UNA categoría (por carrera_id), con desglose por vuelta
+  // Clasificación de UNA categoría. La vuelta se RECALCULA por orden de tiempo
+  // (ignora el campo 'vuelta' guardado, que puede quedar mal si se digita fuera de orden).
   const clasificacionDe = (carreraId: string): Corredor[] => {
     const ps = pasos.filter((p) => p.carrera_id === carreraId);
     if (ps.length === 0) return [];
-    // Ranking por vuelta (para la posición de pasada)
-    const tiemposPorVuelta = new Map<number, number[]>();
-    ps.forEach((p) => {
-      if (!tiemposPorVuelta.has(p.vuelta)) tiemposPorVuelta.set(p.vuelta, []);
-      tiemposPorVuelta.get(p.vuelta)!.push(p.tiempo_ms);
-    });
-    tiemposPorVuelta.forEach((arr) => arr.sort((a, b) => a - b));
-    const posEnVuelta = (v: number, t: number) => (tiemposPorVuelta.get(v) || []).indexOf(t) + 1;
 
     const porDorsal = new Map<string, Paso[]>();
     ps.forEach((p) => {
       if (!porDorsal.has(p.dorsal)) porDorsal.set(p.dorsal, []);
       porDorsal.get(p.dorsal)!.push(p);
     });
+
+    // Acumulados por vuelta RECALCULADA (para la posición de pasada)
+    const acumPorVuelta = new Map<number, number[]>();
+    porDorsal.forEach((lista) => {
+      const ord = [...lista].sort((a, b) => a.tiempo_ms - b.tiempo_ms);
+      ord.forEach((p, i) => {
+        const v = i + 1;
+        if (!acumPorVuelta.has(v)) acumPorVuelta.set(v, []);
+        acumPorVuelta.get(v)!.push(p.tiempo_ms);
+      });
+    });
+    acumPorVuelta.forEach((arr) => arr.sort((a, b) => a - b));
+    const posEnVuelta = (v: number, t: number) => (acumPorVuelta.get(v) || []).indexOf(t) + 1;
+
     const out: Corredor[] = [];
     porDorsal.forEach((lista, dorsal) => {
-      const ordenados = [...lista].sort((a, b) => a.vuelta - b.vuelta);
+      const ordenados = [...lista].sort((a, b) => a.tiempo_ms - b.tiempo_ms);
       let anterior = 0;
-      const detalle: VueltaDetalle[] = ordenados.map((p) => {
-        const d = { vuelta: p.vuelta, acumulado: p.tiempo_ms, parcial: p.tiempo_ms - anterior, posicion: posEnVuelta(p.vuelta, p.tiempo_ms) };
+      const detalle: VueltaDetalle[] = ordenados.map((p, i) => {
+        const v = i + 1;
+        const d = { vuelta: v, acumulado: p.tiempo_ms, parcial: p.tiempo_ms - anterior, posicion: posEnVuelta(v, p.tiempo_ms) };
         anterior = p.tiempo_ms;
         return d;
       });
@@ -139,7 +147,7 @@ export default function VivoPage() {
         dorsal,
         nombre: ultimo.nombre,
         equipo: ultimo.equipo,
-        vueltas: ultimo.vuelta,
+        vueltas: ordenados.length,
         tiempo_ultima: ultimo.tiempo_ms,
         detalle,
       });
