@@ -31,6 +31,10 @@ export default function ControlPage() {
   // Tanda = conjunto de eventos (categorías) que salen a la misma fecha + hora
   const [tandaSeleccionada, setTandaSeleccionada] = useState<string | null>(null); // clave "fecha|hora"
   const [categoriasSeleccionadas, setCategoriasSeleccionadas] = useState<string[]>([]);
+  // Desfase de salida por categoría (salidas escalonadas): categoría -> ms a restar.
+  // Ej: Máster A sale 0:00, Máster B 0:30 después -> su tiempo real = crono - 30s.
+  const [desfases, setDesfases] = useState<Record<string, number>>({});
+  const [desfaseTexto, setDesfaseTexto] = useState<Record<string, string>>({}); // lo que se escribe (m:ss)
   const [controlActivo, setControlActivo] = useState(false); // ya se eligió la tanda y se está cronometrando
   const [salidaCerrada, setSalidaCerrada] = useState(false); // la tanda abierta en pantalla está cerrada (solo lectura)
   const [pasos, setPasos] = useState<Paso[]>([]);
@@ -167,6 +171,23 @@ export default function ControlPage() {
       alert('Seleccioná una tanda y al menos una categoría');
       return;
     }
+    // Parsear los desfases (m:ss) escritos a milisegundos, por categoría marcada
+    const nuevosDesfases: Record<string, number> = {};
+    for (const cat of categoriasSeleccionadas) {
+      const txt = (desfaseTexto[cat] ?? '').trim();
+      if (!txt || txt === '0:00' || txt === '0') {
+        nuevosDesfases[cat] = 0;
+      } else {
+        const ms = parseTiempo(txt);
+        if (ms == null) {
+          alert(`Desfase inválido para "${cat}": "${txt}". Usá m:ss (ej. 0:30).`);
+          return;
+        }
+        nuevosDesfases[cat] = ms;
+      }
+    }
+    setDesfases(nuevosDesfases);
+
     const guardadas = leerSalidas();
     const existente = guardadas[tandaSeleccionada];
 
@@ -307,11 +328,16 @@ export default function ControlPage() {
 
       const vuelta = pasos.filter((p) => p.dorsal === d && p.carrera_id === eventoDestino!.id).length + 1;
 
+      // Tiempo real = crono − desfase de la categoría (salidas escalonadas).
+      // Ej: si Máster B salió 30s después, su cronómetro efectivo empezó 30s más tarde.
+      const desfaseCat = desfases[eventoDestino.categoria] || 0;
+      const tiempoReal = Math.max(0, calcularMs() - desfaseCat);
+
       const nuevoPaso = {
         carrera_id: eventoDestino.id,
         dorsal: d,
         vuelta,
-        tiempo_ms: calcularMs(), // tiempo exacto contra el reloj real en este instante
+        tiempo_ms: tiempoReal,
         nombre,
         equipo,
         categoria: eventoDestino.categoria,
@@ -569,24 +595,44 @@ export default function ControlPage() {
                   ) : (
                     <>
                       <div className="border border-gray-300 rounded-lg max-h-64 overflow-y-auto divide-y divide-gray-100">
-                        {eventosTanda.map((ev) => (
-                          <label
-                            key={ev.id}
-                            className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={categoriasSeleccionadas.includes(ev.categoria)}
-                              onChange={() => toggleCategoria(ev.categoria)}
-                              className="rounded border-gray-300 text-[#1a4f8b] focus:ring-[#1a4f8b]"
-                            />
-                            <span>
-                              {ev.categoria}{' '}
-                              <span className="text-gray-400 text-xs">({ev.tipo})</span>
-                            </span>
-                          </label>
-                        ))}
+                        {eventosTanda.map((ev) => {
+                          const marcada = categoriasSeleccionadas.includes(ev.categoria);
+                          return (
+                          <div key={ev.id} className="px-3 py-2 text-sm hover:bg-gray-50">
+                            <div className="flex items-center justify-between gap-2">
+                              <label className="flex items-center gap-2 cursor-pointer flex-1">
+                                <input
+                                  type="checkbox"
+                                  checked={marcada}
+                                  onChange={() => toggleCategoria(ev.categoria)}
+                                  className="rounded border-gray-300 text-[#1a4f8b] focus:ring-[#1a4f8b]"
+                                />
+                                <span>
+                                  {ev.categoria}{' '}
+                                  <span className="text-gray-400 text-xs">({ev.tipo})</span>
+                                </span>
+                              </label>
+                              {marcada && (
+                                <span className="flex items-center gap-1 text-xs text-gray-500">
+                                  Desfase
+                                  <input
+                                    type="text"
+                                    value={desfaseTexto[ev.categoria] ?? '0:00'}
+                                    onChange={(e) => setDesfaseTexto((prev) => ({ ...prev, [ev.categoria]: e.target.value }))}
+                                    placeholder="m:ss"
+                                    className="w-16 px-2 py-1 border border-gray-300 rounded text-center font-mono"
+                                    title="Tiempo que salió DESPUÉS de la primera (m:ss). 0:00 = salió con el crono."
+                                  />
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          );
+                        })}
                       </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        <strong>Desfase</strong> = cuánto DESPUÉS del crono salió esa categoría (m:ss). Ej: si Máster B salió 30s después, poné <span className="font-mono">0:30</span>. Su tiempo real = crono − desfase.
+                      </p>
                       <p className="text-xs text-gray-500 mt-2">
                         {categoriasSeleccionadas.length} categoría(s) seleccionada(s). Todas se cronometran juntas.
                       </p>
@@ -654,6 +700,7 @@ export default function ControlPage() {
                 {eventosActivos.map((e) => (
                   <span key={e.id} className="bg-[#1a4f8b] text-white text-xs px-2 py-1 rounded-full">
                     {e.categoria} ({e.tipo})
+                    {desfases[e.categoria] ? <span className="ml-1 opacity-80">· +{formatoTiempo(desfases[e.categoria])}</span> : null}
                   </span>
                 ))}
               </div>
