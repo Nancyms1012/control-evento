@@ -107,9 +107,9 @@ export default function ControlPage() {
         .from('pasos_carrera')
         .select('*')
         .in('carrera_id', ids)
-        // ORDEN DE DIGITACIÓN: lo último registrado arriba (orden de pasada real).
+        // ORDEN DE DIGITACIÓN: el PRIMERO registrado arriba (orden de pasada real).
         // No se reordena por tiempo (eso iría contra el orden de captura con desfases).
-        .order('timestamp', { ascending: false });
+        .order('timestamp', { ascending: true });
       if (error) throw error;
       setPasos(data || []);
     } catch (err) {
@@ -352,8 +352,8 @@ export default function ControlPage() {
 
       if (error) throw error;
 
-      // Orden de digitación: el nuevo paso va ARRIBA (lo más reciente primero).
-      setPasos((prev) => [data as Paso, ...prev]);
+      // Orden de digitación: el primero arriba, así el nuevo paso va AL FINAL.
+      setPasos((prev) => [...prev, data as Paso]);
       setDorsal('');
       setAviso(avisoReg);
     } catch (err) {
