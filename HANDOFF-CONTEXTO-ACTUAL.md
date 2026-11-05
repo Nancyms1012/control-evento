@@ -177,3 +177,60 @@ Una vez que Nancy responda, implementar: select de categorías + carga CSV (con 
 ---
 
 **Para retomar en el chat nuevo:** empezar preguntando a Nancy la decisión de la FECHA (A/B/C) para el CSV del cronograma, o si prefiere que primero se arregle el bug crítico de registro de tiempos.
+
+
+---
+
+# 🔄 ACTUALIZACIÓN POST-EVENTO (31 oct – 01 nov 2026) — para continuar en sesión nueva
+
+**App principal trabajada:** `control-evento` (repo Nancyms1012/control-evento, rama main, Next.js + Cloudflare + Supabase). Deploy = push a main. Supabase URL/anon key: ver arriba. La VII Fecha YA SE CORRIÓ (sábado 31/10 XCC + domingo 01/11 XCO + Cyclocross).
+
+## ESTADO DE control-evento (todo implementado y en producción)
+
+**CRONÓMETRO:** por HORA REAL (Date.now()), no se atrasa al bloquear pantalla; se recupera tras recargar (localStorage clave `controlEvento_salidas`, por tanda fecha|hora). Formato de tiempo soporta horas: `h:mm:ss.cc` cuando pasa de 60 min (ej. 1:09:47).
+
+**CRONOGRAMA (/cronograma):** select de categorías (solo CATEGORIAS_CARRERA de src/lib/categorias.ts, SIN Copa Kids), selección múltiple (varias categorías a la misma hora = un evento por categoría), carga CSV (fecha;hora_salida;categoria;tiempo_vueltas;evento — acepta `;` o `,` y Windows-1252 para tildes; evento debe ser XCC o XCO, Cyclocross se carga como XCC), editar evento, "Eliminar todo" (doble confirmación). Tabla `cronograma`: id, fecha, hora_salida, tipo(XCC/XCO), categoria, duracion_minutos, vueltas_totales.
+
+**CONTROL (/control):**
+- Flujo: elegir TANDA (hora) → marcar categorías (selección múltiple) → "Dar salida" (arranca crono al instante). Botón dice "Reabrir salida"/"Abrir salida (ya iniciada)" según estado.
+- DESFASE por categoría (salidas escalonadas): cada categoría marcada tiene campo m:ss. El tiempo guardado = crono − desfase de esa categoría. Chips muestran "+0:30".
+- Registro: solo se digita el DORSAL. Match SOLO por CATEGORÍA (busca el dorsal en `inscripciones`, toma su categoría, lo asigna al evento activo de esa categoría). NO valida tipo XCC/XCO. El tiempo SIEMPRE se registra aunque el dorsal no tenga datos (cae en la 1ª categoría activa, aviso ámbar).
+- Dos TABS en la tabla de pasos: "Registro" (orden de digitación, el PRIMERO arriba, el nuevo va al final) y "Por vuelta" (agrupado por vuelta, más alta arriba). Botones ✏️ Editar (dorsal + tiempo m:ss, re-busca categoría) y 🗑️ Borrar por fila.
+- Panel 80% EN VIVO por categoría (indicador solo lectura): 80% = 80% de la 1ª vuelta del líder (fijo); desde la 2ª vuelta "Sacar si pasa después de X" = acumulado del líder + 80%.
+- Cerrar salida: queda en pantalla en modo SOLO LECTURA (estado "Cerrada", sin Reanudar ni Cerrar), botón "Volver a salidas". En la lista: etiqueta "en curso"/"cerrada". Se puede "Reabrir".
+
+**TRACKING (/tracking):** selector por SALIDA (hora) + filtro por categoría. Muestra una tabla por cada categoría de la tanda. Al clic en un corredor: desglose por vuelta (Vuelta/Pos/Acumulado/Tiempo de la vuelta). Auto-refresco cada 5s (polling, usa carrerasRef para no borrar al refrescar). IMPORTANTE: la VUELTA se RECALCULA por orden de tiempo (ignora el campo `vuelta` guardado, que puede quedar mal si se digita fuera de orden) → nunca más vueltas invertidas ni tiempos negativos. La posición por vuelta = orden de pasada (tiempo ascendente).
+
+**/vivo (página pública para transmisión):** detecta la TANDA EN CURSO por la fecha+hora del evento del paso más reciente, muestra TODAS las categorías de esa tanda (ej. las dos Élite juntas). Mismo contenido que Tracking + desglose por vuelta al clic. Auto-refresco 5s, diseño grande fondo azul. También recalcula vuelta por tiempo.
+
+**BASE DE DATOS:** tabla `pasos_carrera` (id, carrera_id→cronograma, dorsal, vuelta, tiempo_ms, nombre, equipo, categoria, es_rezagado, timestamp). RESTRICCIÓN ÚNICA `unique_paso (carrera_id, dorsal, vuelta)` → para renumerar vueltas hay que hacerlo en 2 fases (temporales 101+ y luego 1..n). Nancy corrió SQL `ALTER TABLE pasos_carrera ADD COLUMN IF NOT EXISTS estado text;` (columna `estado` existe pero aún NO se usa).
+
+## RESPALDOS GUARDADOS (en repo control-evento/respaldos/)
+- `resultados_pasos.csv` y `resultados_backup.json`: 819 pasos de las 2 fechas (31/10 = 346, 01/11 = 473).
+- `inscripciones-VI-fecha-2026-09-26.csv`: PLACEHOLDER. El CSV real de la VI Fecha (367 inscripciones, sept) lo pegó Nancy en el chat — hay que volver a cargarlo en la sesión nueva.
+
+## PENDIENTES / EN CURSO (lo que quedó a medias)
+
+1. **DNF / sacados por 80% (NO implementado).** Nancy quiere marcar DNF y "-X lap" manualmente (desde Control o un tab nuevo), con cálculo automático del -X lap (vueltas líder − vueltas corredor) + opción de corregir, y que aparezca en resultados de Tracking. Ya existe columna `estado` en pasos_carrera para esto. Durante el evento se llevó en papel.
+
+2. **CONSOLIDADO VI vs VII en el Admin de formulario-inscripciones (SOLICITADO, no empezado):** un tab nuevo con (a) cards resumen de cada fecha, (b) mapa de provincias con cantidad de participantes y %, (c) detalle por corredor con 2 columnas (VI Fecha / VII Fecha), identificando al mismo corredor por numero_identificacion (cédula). PROBLEMA: los datos de inscripción de la VI Fecha NO están en Supabase (se borraron tras backup); hay que cargarlos desde el CSV que pegó Nancy. Plan acordado: (Paso 1) crear tabla histórica `inscripciones_historico` con columna `fecha_evento`; (Paso 2) cargar VI desde CSV + VII desde tabla `inscripciones`; (Paso 3) construir el tab Consolidado. El admin vive en repo `formulario-inscripciones` (Next.js, src/app/admin/page.tsx).
+
+3. **HISTÓRICO AUTOMÁTICO (idea de Nancy, pendiente de diseñar):** que al terminar una fecha, los datos se archiven automáticamente en una tabla histórica ANTES de limpiar para la fecha nueva (para no volver a perder inscripciones como pasó con la VI). Diseñar junto con el consolidado.
+
+4. **Corrección de tiempos tanda 7 (01/11) — NANCY DECIDIÓ DEJARLO ASÍ:** Máster B (carrera_id 250c71d3) y Open (75c8c890) tenían el desfase −30s/−60s aplicado SOLO a la vuelta 1 (las vueltas 2-4 quedaron sin el ajuste). Nancy dijo "dejar el 752 así" y no se terminó de corregir el resto. SI SE RETOMA: ojo que algunos pasos ya tienen el ajuste y otros no (riesgo de doble resta). Mejor verificar contra tiempos reales anotados.
+
+5. **Mujeres de la tanda 8 (01/11): salieron +1:00, NO +1:30 como se cargó el desfase.** Quedó SIN corregir. Habría que restar/sumar la diferencia (30s) a esos pasos. Pendiente.
+
+## CORRECCIONES DE DATOS YA APLICADAS (hechas vía API REST directo a Supabase, no por la app)
+- Dorsales: se vaciaron los viejos y se cargaron los de la VII Fecha por cédula (admin-central/dorsales, match cédula + categoría para quienes tienen doble inscripción como Cyclocross).
+- Creadas 5 inscripciones de Cyclocross (evento "XCE") para Jeffrey Herrera, Enrique Artavia, Elber Herrera, Francisco Mora (Cyclocross Máster Masc) y Ean Sunsin (Cyclocross Élite Masc), porque corrían XCC+XCO+Cyclocross con dorsal distinto en Cyclocross.
+- Dorsal 91 (Isabel García): su paso de HOY se movió de Élite Masculino → Élite Femenino (sin tocar inscripción ni pasos de ayer).
+- Dorsal 163, 316, 345: renumeradas sus vueltas de hoy por orden de tiempo (ya no hace falta hacerlo a mano porque Tracking/vivo ahora recalculan por tiempo).
+
+## NOTAS IMPORTANTES
+- Nancy trabaja solo desde navegador (no instala nada). Deploy = git push a main (Cloudflare auto-deploy). Recargar con Ctrl+Shift+R por el caché.
+- CSV de su Excel usan separador `;` y codificación Windows-1252 (tildes). Todos los parsers CSV de las apps ya aceptan `;`/`,` + Windows-1252.
+- Cédulas en notación científica (ej. 1,55831E+11) al exportar de Excel: hay que formatear la columna como Texto. Hubo 2-3 casos.
+- Supabase plan gratuito se pausa por inactividad (~7 días): verificar que esté activo. Considerar respaldo periódico de resultados.
+- node en el sandbox: usar `bash -lc 'node ...'` (shim mise).
+- Las operaciones masivas de datos (renumerar/ajustar tiempos) se hicieron por API REST con fetch/node, no por SQL (la anon key no lista tablas vía OpenAPI).
